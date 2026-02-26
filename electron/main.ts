@@ -74,21 +74,46 @@ const isPathInside = (targetPath: string, rootPath: string): boolean => {
   return escaped ? false : true;
 };
 
-const windowBackgroundColorFor = (preference: ThemePreference): string => {
-  if (["dark", "terminal", "amber-terminal", "red", "orange", "yellow", "green", "blue", "indigo", "white"].includes(preference)) {
-    return "#111113";
-  }
+const themeColors: Record<ThemePreference, { bg: string; ink: string }> = {
+  system: nativeTheme.shouldUseDarkColors
+    ? { bg: "#0b0b0d", ink: "#e4e7ee" }
+    : { bg: "#e8eaef", ink: "#1a1e26" },
+  light: { bg: "#e8eaef", ink: "#1a1e26" },
+  dark: { bg: "#0b0b0d", ink: "#e4e7ee" },
+  terminal: { bg: "#020503", ink: "#c8ffd8" },
+  "amber-terminal": { bg: "#070502", ink: "#ffe4b0" },
+  red: { bg: "#120708", ink: "#ffe0e0" },
+  orange: { bg: "#140d05", ink: "#ffe8c8" },
+  yellow: { bg: "#141105", ink: "#fff8d0" },
+  green: { bg: "#030804", ink: "#c8ffd8" },
+  blue: { bg: "#050b14", ink: "#d8eeff" },
+  indigo: { bg: "#0a0818", ink: "#e8e2ff" },
+  white: { bg: "#111214", ink: "#ffffff" }
+};
+
+const resolveThemeColors = (preference: ThemePreference): { bg: string; ink: string } => {
   if (preference === "system") {
-    return nativeTheme.shouldUseDarkColors ? "#111113" : "#ffffff";
+    return nativeTheme.shouldUseDarkColors
+      ? themeColors.dark
+      : themeColors.light;
   }
-  return "#ffffff";
+  return themeColors[preference] ?? themeColors.dark;
+};
+
+const windowBackgroundColorFor = (preference: ThemePreference): string => {
+  return resolveThemeColors(preference).bg;
 };
 
 const applyWindowBackground = (preference: ThemePreference): void => {
-  const color = windowBackgroundColorFor(preference);
+  const colors = resolveThemeColors(preference);
   for (const win of BrowserWindow.getAllWindows()) {
     if (!win.isDestroyed()) {
-      win.setBackgroundColor(color);
+      win.setBackgroundColor(colors.bg);
+      win.setTitleBarOverlay({
+        color: colors.bg,
+        symbolColor: colors.ink,
+        height: 36
+      });
     }
   }
 };
@@ -213,20 +238,25 @@ const buildMenu = async (): Promise<void> => {
 };
 
 const createWindow = async (themePreference: ThemePreference): Promise<void> => {
+  const colors = resolveThemeColors(themePreference);
   mainWindow = new BrowserWindow({
     width: 1320,
     height: 860,
     minWidth: 980,
     minHeight: 700,
-    autoHideMenuBar: false,
-    backgroundColor: windowBackgroundColorFor(themePreference),
+    backgroundColor: colors.bg,
+    titleBarStyle: "hidden",
+    titleBarOverlay: {
+      color: colors.bg,
+      symbolColor: colors.ink,
+      height: 36
+    },
     webPreferences: {
       contextIsolation: true,
       nodeIntegration: false,
       preload: path.join(__dirname, "preload.js")
     }
   });
-  mainWindow.setMenuBarVisibility(true);
 
   if (!app.isPackaged) {
     try {
@@ -449,4 +479,72 @@ ipcMain.handle("gallery:exportZip", async () => {
 
   await fs.writeFile(saveResult.filePath, blob);
   return { ok: true, path: saveResult.filePath };
+});
+
+ipcMain.handle("menu:reload", () => {
+  mainWindow?.webContents.reload();
+});
+
+ipcMain.handle("menu:forceReload", () => {
+  mainWindow?.webContents.reloadIgnoringCache();
+});
+
+ipcMain.handle("menu:toggleDevTools", () => {
+  mainWindow?.webContents.toggleDevTools();
+});
+
+ipcMain.handle("menu:resetZoom", () => {
+  if (mainWindow) {
+    mainWindow.webContents.zoomLevel = 0;
+  }
+});
+
+ipcMain.handle("menu:zoomIn", () => {
+  if (mainWindow) {
+    mainWindow.webContents.zoomLevel += 0.5;
+  }
+});
+
+ipcMain.handle("menu:zoomOut", () => {
+  if (mainWindow) {
+    mainWindow.webContents.zoomLevel -= 0.5;
+  }
+});
+
+ipcMain.handle("menu:toggleFullscreen", () => {
+  if (mainWindow) {
+    mainWindow.setFullScreen(!mainWindow.isFullScreen());
+  }
+});
+
+ipcMain.handle("menu:openExternal", async (_event, url: string) => {
+  await shell.openExternal(url);
+});
+
+ipcMain.handle("menu:quit", () => {
+  app.quit();
+});
+
+ipcMain.handle("menu:undo", () => {
+  mainWindow?.webContents.undo();
+});
+
+ipcMain.handle("menu:redo", () => {
+  mainWindow?.webContents.redo();
+});
+
+ipcMain.handle("menu:cut", () => {
+  mainWindow?.webContents.cut();
+});
+
+ipcMain.handle("menu:copy", () => {
+  mainWindow?.webContents.copy();
+});
+
+ipcMain.handle("menu:paste", () => {
+  mainWindow?.webContents.paste();
+});
+
+ipcMain.handle("menu:selectAll", () => {
+  mainWindow?.webContents.selectAll();
 });

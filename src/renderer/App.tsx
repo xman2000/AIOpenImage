@@ -144,7 +144,7 @@ const App = (): JSX.Element => {
   const [fullscreenImageSrc, setFullscreenImageSrc] = useState<string | null>(null);
   const [appInfo, setAppInfo] = useState<AppInfo>({
     name: "AI Open Image",
-    version: "0.1.0",
+    version: "0.2.0",
     releaseDate: "Local Build",
     platform: "win32"
   });
@@ -183,6 +183,7 @@ const App = (): JSX.Element => {
   const [editRunId, setEditRunId] = useState<string | undefined>(undefined);
   const [latestEditResultSrc, setLatestEditResultSrc] = useState<string | null>(null);
   const [compareValue, setCompareValue] = useState(50);
+  const [isCompareMode, setIsCompareMode] = useState(false);
   const [editSourceAspectRatio, setEditSourceAspectRatio] = useState(1);
   const [maskTool, setMaskTool] = useState<"brush" | "erase" | "rect">("brush");
   const [maskBrushSize, setMaskBrushSize] = useState(24);
@@ -191,11 +192,14 @@ const App = (): JSX.Element => {
   const [maskPath, setMaskPath] = useState<string | undefined>(undefined);
   const [maskDirty, setMaskDirty] = useState(false);
   const [modelWarnings, setModelWarnings] = useState<string[]>([]);
+  const [activeMenu, setActiveMenu] = useState<string | null>(null);
+  const menuBarRef = useRef<HTMLDivElement | null>(null);
   const maskCanvasRef = useRef<HTMLCanvasElement | null>(null);
   const maskDrawingRef = useRef(false);
   const maskLastPointRef = useRef<{ x: number; y: number } | null>(null);
   const rectStartPointRef = useRef<{ x: number; y: number } | null>(null);
   const rectBaseImageRef = useRef<ImageData | null>(null);
+  const compareDraggingRef = useRef(false);
   const bootStartedAtRef = useRef<number>(Date.now());
 
   const selectedModels = useMemo(
@@ -364,6 +368,16 @@ const App = (): JSX.Element => {
       unsubClear();
     };
   }, []);
+
+  useEffect(() => {
+    const handleClickOutside = (event: MouseEvent): void => {
+      if (activeMenu && menuBarRef.current && !menuBarRef.current.contains(event.target as Node)) {
+        setActiveMenu(null);
+      }
+    };
+    document.addEventListener("mousedown", handleClickOutside);
+    return () => document.removeEventListener("mousedown", handleClickOutside);
+  }, [activeMenu]);
 
   useEffect(() => {
     const onKeyDown = (event: KeyboardEvent): void => {
@@ -670,6 +684,36 @@ const App = (): JSX.Element => {
     rectBaseImageRef.current = null;
   };
 
+  const updateCompareFromClientX = (clientX: number, element: HTMLDivElement): void => {
+    const bounds = element.getBoundingClientRect();
+    if (bounds.width <= 0) {
+      return;
+    }
+    const ratio = ((clientX - bounds.left) / bounds.width) * 100;
+    const clamped = Math.max(0, Math.min(100, ratio));
+    setCompareValue(clamped);
+  };
+
+  const onComparePointerDown = (event: ReactPointerEvent<HTMLDivElement>): void => {
+    compareDraggingRef.current = true;
+    updateCompareFromClientX(event.clientX, event.currentTarget);
+    event.currentTarget.setPointerCapture(event.pointerId);
+  };
+
+  const onComparePointerMove = (event: ReactPointerEvent<HTMLDivElement>): void => {
+    if (!compareDraggingRef.current) {
+      return;
+    }
+    updateCompareFromClientX(event.clientX, event.currentTarget);
+  };
+
+  const onComparePointerUp = (event: ReactPointerEvent<HTMLDivElement>): void => {
+    compareDraggingRef.current = false;
+    if (event.currentTarget.hasPointerCapture(event.pointerId)) {
+      event.currentTarget.releasePointerCapture(event.pointerId);
+    }
+  };
+
   const onStartEdit = async (item: GalleryItem): Promise<void> => {
     setBusy(true);
     setStatusTone("info");
@@ -692,6 +736,7 @@ const App = (): JSX.Element => {
     setPrompt("");
     setLatestEditResultSrc(null);
     setCompareValue(50);
+    setIsCompareMode(false);
     setMaskDataUrl(undefined);
     setMaskPath(undefined);
     setMaskDirty(false);
@@ -712,6 +757,7 @@ const App = (): JSX.Element => {
     setMaskDirty(false);
     setLatestEditResultSrc(null);
     setCompareValue(50);
+    setIsCompareMode(false);
     setEditSourceAspectRatio(1);
     setIsEditStudioOpen(false);
     maskDrawingRef.current = false;
@@ -834,6 +880,7 @@ const App = (): JSX.Element => {
       setModelWarnings(warnings);
       if (isEditMode && latestProducedPath) {
         setLatestEditResultSrc(imageSrc(latestProducedPath));
+        setIsCompareMode(true);
       }
 
       if (failedCount > 0) {
@@ -891,8 +938,128 @@ const App = (): JSX.Element => {
     setStatus("Loaded prompt, style, and advanced controls from selected gallery image.");
   };
 
+  const menuItems: { label: string; items: { label: string; accelerator?: string; type?: "separator"; action?: () => void; submenu?: { label: string; checked?: boolean; action: () => void }[] }[] }[] = [
+    {
+      label: "File",
+      items: [
+        { label: "Export Gallery ZIP", accelerator: "Ctrl+Shift+E", action: () => void onExportZip() },
+        { label: "Clear Gallery", accelerator: "Ctrl+Shift+Backspace", action: () => void onClearGallery() },
+        { type: "separator", label: "" },
+        { label: "Quit", accelerator: "Ctrl+Q", action: () => void window.appApi.menuQuit() }
+      ]
+    },
+    {
+      label: "Edit",
+      items: [
+        { label: "Undo", accelerator: "Ctrl+Z", action: () => void window.appApi.menuUndo() },
+        { label: "Redo", accelerator: "Ctrl+Y", action: () => void window.appApi.menuRedo() },
+        { type: "separator", label: "" },
+        { label: "Cut", accelerator: "Ctrl+X", action: () => void window.appApi.menuCut() },
+        { label: "Copy", accelerator: "Ctrl+C", action: () => void window.appApi.menuCopy() },
+        { label: "Paste", accelerator: "Ctrl+V", action: () => void window.appApi.menuPaste() },
+        { label: "Select All", accelerator: "Ctrl+A", action: () => void window.appApi.menuSelectAll() }
+      ]
+    },
+    {
+      label: "View",
+      items: [
+        { label: "Reload", accelerator: "Ctrl+R", action: () => void window.appApi.menuReload() },
+        { label: "Force Reload", accelerator: "Ctrl+Shift+R", action: () => void window.appApi.menuForceReload() },
+        { label: "Toggle DevTools", accelerator: "F12", action: () => void window.appApi.menuToggleDevTools() },
+        { type: "separator", label: "" },
+        { label: "Reset Zoom", accelerator: "Ctrl+0", action: () => void window.appApi.menuResetZoom() },
+        { label: "Zoom In", accelerator: "Ctrl++", action: () => void window.appApi.menuZoomIn() },
+        { label: "Zoom Out", accelerator: "Ctrl+-", action: () => void window.appApi.menuZoomOut() },
+        { type: "separator", label: "" },
+        { label: "Toggle Fullscreen", accelerator: "F11", action: () => void window.appApi.menuToggleFullscreen() }
+      ]
+    },
+    {
+      label: "Settings",
+      items: [
+        { label: "Open Settings...", accelerator: "Ctrl+,", action: () => setIsSettingsOpen(true) },
+        {
+          label: "Theme",
+          submenu: themes.map((t) => ({
+            label: t.label,
+            checked: themeInput === t.value,
+            action: () => void onThemeChange(t.value)
+          }))
+        }
+      ]
+    },
+    {
+      label: "Help",
+      items: [
+        { label: "OpenRouter Keys", action: () => void window.appApi.menuOpenExternal("https://openrouter.ai/keys") },
+        { label: "About", action: () => setIsAboutOpen(true) }
+      ]
+    }
+  ];
+
   return (
     <>
+      <div className="custom-titlebar" ref={menuBarRef}>
+        <div className="custom-titlebar-menus">
+          {menuItems.map((menu) => (
+            <div
+              key={menu.label}
+              className={`custom-menu ${activeMenu === menu.label ? "custom-menu-open" : ""}`}
+            >
+              <button
+                className="custom-menu-trigger"
+                onMouseDown={(e) => {
+                  e.preventDefault();
+                  setActiveMenu(activeMenu === menu.label ? null : menu.label);
+                }}
+                onMouseEnter={() => {
+                  if (activeMenu && activeMenu !== menu.label) {
+                    setActiveMenu(menu.label);
+                  }
+                }}
+              >
+                {menu.label}
+              </button>
+              {activeMenu === menu.label && (
+                <div className="custom-menu-dropdown">
+                  {menu.items.map((item, idx) =>
+                    item.type === "separator" ? (
+                      <div key={`sep-${idx}`} className="custom-menu-separator" />
+                    ) : item.submenu ? (
+                      <div key={item.label} className="custom-menu-item custom-menu-submenu-parent">
+                        <span>{item.label}</span>
+                        <span className="custom-menu-arrow">&#9656;</span>
+                        <div className="custom-menu-submenu">
+                          {item.submenu.map((sub) => (
+                            <button
+                              key={sub.label}
+                              className={`custom-menu-item ${sub.checked ? "custom-menu-checked" : ""}`}
+                              onClick={() => { sub.action(); setActiveMenu(null); }}
+                            >
+                              <span className="custom-menu-check">{sub.checked ? "\u2022" : ""}</span>
+                              <span>{sub.label}</span>
+                            </button>
+                          ))}
+                        </div>
+                      </div>
+                    ) : (
+                      <button
+                        key={item.label}
+                        className="custom-menu-item"
+                        onClick={() => { item.action?.(); setActiveMenu(null); }}
+                      >
+                        <span>{item.label}</span>
+                        {item.accelerator && <span className="custom-menu-accel">{item.accelerator}</span>}
+                      </button>
+                    )
+                  )}
+                </div>
+              )}
+            </div>
+          ))}
+        </div>
+        <div className="custom-titlebar-drag" />
+      </div>
       <main className={`app-shell desktop ${appVisible ? "app-shell-visible" : "app-shell-hidden"}`}>
       <header className="desktop-header">
         <div>
@@ -914,9 +1081,6 @@ const App = (): JSX.Element => {
               <option key={theme.value} value={theme.value}>{theme.label}</option>
             ))}
           </select>
-          <button type="button" className="ghost" onClick={() => setIsSettingsOpen(true)}>Settings</button>
-          <button type="button" className="ghost" onClick={() => setIsAboutOpen(true)}>About</button>
-          <button type="button" onClick={onExportZip} disabled={appData.gallery.length === 0}>Export ZIP</button>
         </div>
       </header>
 
@@ -928,7 +1092,7 @@ const App = (): JSX.Element => {
 
       <section className="workspace">
         <aside className="tool-panel">
-          <section>
+          <section className="no-divider">
             {isEditMode && editSourceImage ? (
               <div className="edit-callout">
                 <strong>Edit Mode</strong>
@@ -953,7 +1117,7 @@ const App = (): JSX.Element => {
             />
           </section>
 
-          <section>
+          <section className="no-divider">
             <label>Negative Prompt</label>
             <textarea
               className="negative-glow"
@@ -962,6 +1126,27 @@ const App = (): JSX.Element => {
               rows={4}
               placeholder="Negative Prompt - This tells the model what to avoid. Think of it as guardrails for your image."
             />
+
+            <div className={`generate-wrap${busy || !prompt || (requiresApiKey && !appData.settings.apiKey) || selectedModelIds.length === 0 || (isEditMode && !referenceImage) ? " generate-wrap-disabled" : ""}`}>
+              <button
+                type="button"
+                className="generate"
+                disabled={
+                  busy ||
+                  !prompt ||
+                  (requiresApiKey && !appData.settings.apiKey) ||
+                  selectedModelIds.length === 0 ||
+                  (isEditMode && !referenceImage)
+                }
+                onClick={onGenerate}
+              >
+                {busy
+                  ? isEditMode
+                    ? "Editing..."
+                    : "Generating..."
+                  : "Let's Go!"}
+              </button>
+            </div>
           </section>
 
           <section>
@@ -1020,27 +1205,6 @@ const App = (): JSX.Element => {
             ) : null}
           </section>
 
-          <section>
-            <label>Style Preset</label>
-            <select
-              value={presetName}
-              onChange={(e) => {
-                const nextPreset = e.target.value;
-                setPresetName(nextPreset);
-                if (nextPreset !== "None") {
-                  applyPreset(nextPreset);
-                }
-              }}
-            >
-              <option value="None">None</option>
-              {presets.map((preset) => (
-                <option key={preset.name} value={preset.name}>
-                  {preset.name}
-                </option>
-              ))}
-            </select>
-          </section>
-
           <details className="advanced" open>
             <summary>Advanced Controls</summary>
             <div className="advanced-body">
@@ -1068,13 +1232,24 @@ const App = (): JSX.Element => {
                 )}
               </div>
 
-              <label className="toggle-inline">
-                <input type="checkbox" checked={useSeed} onChange={(e) => setUseSeed(e.target.checked)} />
-                <span>Set Seed</span>
-              </label>
-              {useSeed ? (
-                <input type="number" value={seedValue} onChange={(e) => setSeedValue(Number.parseInt(e.target.value, 10) || 0)} />
-              ) : null}
+              <label>Style Preset</label>
+              <select
+                value={presetName}
+                onChange={(e) => {
+                  const nextPreset = e.target.value;
+                  setPresetName(nextPreset);
+                  if (nextPreset !== "None") {
+                    applyPreset(nextPreset);
+                  }
+                }}
+              >
+                <option value="None">None</option>
+                {presets.map((preset) => (
+                  <option key={preset.name} value={preset.name}>
+                    {preset.name}
+                  </option>
+                ))}
+              </select>
 
               {isEditMode ? (
                 <>
@@ -1099,24 +1274,6 @@ const App = (): JSX.Element => {
             </div>
           </details>
 
-          <button
-            type="button"
-            className="generate"
-            disabled={
-              busy ||
-              !prompt ||
-              (requiresApiKey && !appData.settings.apiKey) ||
-              selectedModelIds.length === 0 ||
-              (isEditMode && !referenceImage)
-            }
-            onClick={onGenerate}
-          >
-            {busy
-              ? isEditMode
-                ? "Editing..."
-                : "Generating..."
-              : `${isEditMode ? "Edit" : "Generate"} ${batchMode ? `${Math.max(2, Math.min(4, batchCount))} per model` : "1 per model"}`}
-          </button>
           <p className={`status ${statusTone}`}>{status}</p>
           {modelWarnings.length ? (
             <div className="warning-list">
@@ -1135,6 +1292,7 @@ const App = (): JSX.Element => {
             </div>
             <div className="toolbar-actions">
               <button type="button" className="ghost" onClick={onClearGallery} disabled={appData.gallery.length === 0}>Clear Gallery</button>
+              <button type="button" onClick={onExportZip} disabled={appData.gallery.length === 0}>Export ZIP</button>
             </div>
           </div>
 
@@ -1292,7 +1450,6 @@ const App = (): JSX.Element => {
                 <small className="muted">Source: {editSourceImage.filename}</small>
               </div>
               <div className="toolbar-actions">
-                <button type="button" className="ghost" onClick={() => setIsEditStudioOpen(false)}>Close Studio</button>
                 <button type="button" className="ghost" onClick={exitEditMode}>Exit Edit Mode</button>
               </div>
             </header>
@@ -1351,71 +1508,63 @@ const App = (): JSX.Element => {
                     <input type="checkbox" checked={showMaskTint} onChange={(e) => setShowMaskTint(e.target.checked)} />
                     <span>Red Tint</span>
                   </label>
+                  {latestEditResultSrc ? (
+                    <button type="button" className="ghost" onClick={() => setIsCompareMode((prev) => !prev)}>
+                      {isCompareMode ? "Back to Edit" : "Compare"}
+                    </button>
+                  ) : null}
                   <button type="button" className="ghost" onClick={clearMask}>Clear Mask</button>
                 </div>
 
-                <div
-                  className="edit-studio-canvas-wrap"
-                  style={{
-                    ["--stage-aspect" as string]: `${editSourceAspectRatio}`
-                  }}
-                >
-                  {referencePreview ? (
-                    <img
-                      className="edit-studio-image"
-                      src={referencePreview}
-                      alt="Edit source"
-                      onLoad={(event) => {
-                        const img = event.currentTarget;
-                        if (img.naturalWidth > 0 && img.naturalHeight > 0) {
-                          setEditSourceAspectRatio(img.naturalWidth / img.naturalHeight);
-                        }
-                      }}
-                    />
-                  ) : null}
-                  <canvas
-                    ref={maskCanvasRef}
-                    className="edit-studio-mask-canvas"
-                    onPointerDown={onMaskPointerDown}
-                    onPointerMove={onMaskPointerMove}
-                    onPointerUp={onMaskPointerUp}
-                    onPointerLeave={onMaskPointerLeave}
-                  />
-                </div>
-                {latestEditResultSrc && referencePreview ? (
-                  <div className="compare-panel">
-                    <div className="row">
-                      <strong>Compare</strong>
-                      <small className="muted">Before / Latest result</small>
-                    </div>
+                {isCompareMode && latestEditResultSrc && referencePreview ? (
+                  <div className="edit-studio-canvas-wrap" style={{ ["--stage-aspect" as string]: `${editSourceAspectRatio}` }}>
                     <div
                       className="compare-stage"
-                      style={{
-                        ["--stage-aspect" as string]: `${editSourceAspectRatio}`
-                      }}
+                      onPointerDown={onComparePointerDown}
+                      onPointerMove={onComparePointerMove}
+                      onPointerUp={onComparePointerUp}
+                      onPointerCancel={onComparePointerUp}
+                      onDragStart={(event) => event.preventDefault()}
                     >
                       <div className="compare-after">
-                        <img src={latestEditResultSrc} alt="Edited result" className="compare-layer-image" />
+                        <img src={latestEditResultSrc} alt="Edited result" className="compare-layer-image" draggable={false} />
                       </div>
-                      <div
-                        className="compare-before"
-                        style={{
-                          clipPath: `inset(0 ${100 - compareValue}% 0 0)`
-                        }}
-                      >
-                        <img src={referencePreview} alt="Original" className="compare-layer-image" />
+                      <div className="compare-before" style={{ clipPath: `inset(0 ${100 - compareValue}% 0 0)` }}>
+                        <img src={referencePreview} alt="Original" className="compare-layer-image" draggable={false} />
                       </div>
                       <div className="compare-divider" style={{ left: `${compareValue}%` }} />
                     </div>
-                    <input
-                      type="range"
-                      min={0}
-                      max={100}
-                      value={compareValue}
-                      onChange={(e) => setCompareValue(Number.parseInt(e.target.value, 10) || 0)}
+                  </div>
+                ) : (
+                  <div
+                    className="edit-studio-canvas-wrap"
+                    style={{
+                      ["--stage-aspect" as string]: `${editSourceAspectRatio}`
+                    }}
+                  >
+                    {referencePreview ? (
+                      <img
+                        className="edit-studio-image"
+                        src={referencePreview}
+                        alt="Edit source"
+                        onLoad={(event) => {
+                          const img = event.currentTarget;
+                          if (img.naturalWidth > 0 && img.naturalHeight > 0) {
+                            setEditSourceAspectRatio(img.naturalWidth / img.naturalHeight);
+                          }
+                        }}
+                      />
+                    ) : null}
+                    <canvas
+                      ref={maskCanvasRef}
+                      className="edit-studio-mask-canvas"
+                      onPointerDown={onMaskPointerDown}
+                      onPointerMove={onMaskPointerMove}
+                      onPointerUp={onMaskPointerUp}
+                      onPointerLeave={onMaskPointerLeave}
                     />
                   </div>
-                ) : null}
+                )}
               </section>
 
               <aside className="edit-studio-controls">
@@ -1447,14 +1596,16 @@ const App = (): JSX.Element => {
                   </div>
                 ) : null}
 
-                <button
-                  type="button"
-                  className="generate"
-                  disabled={busy || !prompt || selectedModelIds.length === 0 || !referenceImage}
-                  onClick={onGenerate}
-                >
-                  {busy ? "Editing..." : `Edit ${batchMode ? `${Math.max(2, Math.min(4, batchCount))} per model` : "1 per model"}`}
-                </button>
+                <div className={`generate-wrap${busy || !prompt || selectedModelIds.length === 0 || !referenceImage ? " generate-wrap-disabled" : ""}`}>
+                  <button
+                    type="button"
+                    className="generate"
+                    disabled={busy || !prompt || selectedModelIds.length === 0 || !referenceImage}
+                    onClick={onGenerate}
+                  >
+                    {busy ? "Editing..." : "Edit"}
+                  </button>
+                </div>
               </aside>
             </div>
           </div>
@@ -1566,6 +1717,18 @@ const App = (): JSX.Element => {
             onClick={(e) => e.stopPropagation()}
           />
           <button type="button" className="fullscreen-close" onClick={() => setFullscreenImageSrc(null)}>Close</button>
+        </div>
+      ) : null}
+
+      {busy ? (
+        <div className="gen-popover" role="status" aria-live="polite" aria-label="Generation in progress">
+          <div className="gen-popover-header">
+            <span className="gen-popover-title">{isEditMode ? "Editing" : "Generating"}</span>
+          </div>
+          <p className="gen-popover-status">{status}</p>
+          <div className="gen-popover-bar-track" aria-hidden="true">
+            <div className="gen-popover-bar-fill" />
+          </div>
         </div>
       ) : null}
       </main>
