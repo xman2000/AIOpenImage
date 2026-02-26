@@ -1,0 +1,13 @@
+model_id: google/gemini-2.5-flash-image
+name: "Google: Nano Banana (Gemini 2.5 Flash Image)"
+description: General-availability image generation and editing model with strong contextual understanding and fast iteration.
+best_for:
+  - image generation
+  - image editing
+  - multi-turn visual workflows
+cost_estimate: $0.03 per image
+prompt_tips:
+  - Use image_config.aspect_ratio to control output framing.
+  - Keep instructions explicit when editing existing images.
+input_modalities: [text, image]
+output_modalities: [image, text]

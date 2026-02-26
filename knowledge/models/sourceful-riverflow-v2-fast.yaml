@@ -1,0 +1,13 @@
+model_id: sourceful/riverflow-v2-fast
+name: "Sourceful: Riverflow V2 Fast"
+description: Fast Riverflow 2.0 variant built for production latency and reliable generation/editing.
+best_for:
+  - low-latency production image generation
+  - high-throughput workflows
+  - economical 1K and 2K outputs
+cost_estimate: $0.02 per image
+prompt_tips:
+  - Prefer image URLs over base64 for larger image references.
+  - Keep prompts direct and production-focused.
+input_modalities: [text, image]
+output_modalities: [image, text]

@@ -1,0 +1,13 @@
+model_id: sourceful/riverflow-v2-standard-preview
+name: "Sourceful: Riverflow V2 Standard Preview"
+description: Standard preview variant balancing quality and speed in the Riverflow V2 preview lineup.
+best_for:
+  - balanced preview runs
+  - quick production mockups
+  - mixed generation and editing tasks
+cost_estimate: $0.035 per image
+prompt_tips:
+  - Specify composition and style in separate clauses.
+  - Use image URLs for larger references.
+input_modalities: [text, image]
+output_modalities: [image, text]

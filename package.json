@@ -1,0 +1,35 @@
+{
+  "name": "ai-open-image",
+  "version": "0.1.0",
+  "private": true,
+  "description": "AI Open Image desktop generator",
+  "main": "dist-electron/electron/main.js",
+  "scripts": {
+    "dev": "concurrently -k \"npm:dev:renderer\" \"npm:dev:electron\"",
+    "dev:renderer": "vite",
+    "dev:electron": "wait-on tcp:5173 && npm run build:electron && electron .",
+    "build": "npm run build:renderer && npm run build:electron",
+    "build:renderer": "vite build",
+    "build:electron": "tsc -p tsconfig.electron.json",
+    "preview": "vite preview"
+  },
+  "dependencies": {
+    "image-size": "^1.1.1",
+    "js-yaml": "^4.1.0",
+    "jszip": "^3.10.1",
+    "react": "^18.3.1",
+    "react-dom": "^18.3.1"
+  },
+  "devDependencies": {
+    "@types/js-yaml": "^4.0.9",
+    "@types/node": "^22.13.11",
+    "@types/react": "^18.3.18",
+    "@types/react-dom": "^18.3.5",
+    "@vitejs/plugin-react": "^4.3.4",
+    "concurrently": "^9.1.2",
+    "electron": "^35.0.0",
+    "typescript": "^5.8.2",
+    "vite": "^6.2.2",
+    "wait-on": "^8.0.2"
+  }
+}

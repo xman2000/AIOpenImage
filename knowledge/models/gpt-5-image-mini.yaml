@@ -1,0 +1,12 @@
+model_id: openai/gpt-5-image-mini
+name: "OpenAI: GPT-5 Image Mini"
+description: Efficient multimodal image generation model with lower latency and cost.
+best_for:
+  - batch ideation
+  - quick design alternatives
+cost_estimate: $0.008 per image
+prompt_tips:
+  - Keep prompts concise and explicit for best throughput.
+  - Use batches to explore multiple variations quickly.
+input_modalities: [text, image]
+output_modalities: [image, text]

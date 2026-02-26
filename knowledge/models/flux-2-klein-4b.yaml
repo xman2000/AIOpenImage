@@ -1,0 +1,13 @@
+model_id: black-forest-labs/flux.2-klein-4b
+name: "Black Forest Labs: FLUX.2 Klein 4B"
+description: Fastest and most cost-effective FLUX.2 model for high-throughput image generation.
+best_for:
+  - throughput-focused production pipelines
+  - cost-sensitive image generation
+  - rapid experimentation at scale
+cost_estimate: $0.014 per image
+prompt_tips:
+  - Keep prompts concise for high-throughput runs.
+  - Scale with batches for efficient exploration.
+input_modalities: [text]
+output_modalities: [image]
