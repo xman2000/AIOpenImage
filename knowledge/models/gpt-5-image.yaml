@@ -10,3 +10,5 @@ prompt_tips:
   - Break prompts into subject, style, and constraints.
 input_modalities: [text, image]
 output_modalities: [image, text]
+supportsImageEdit: true
+supportsMaskEdit: true

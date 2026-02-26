@@ -11,3 +11,5 @@ prompt_tips:
   - Keep prompts direct and production-focused.
 input_modalities: [text, image]
 output_modalities: [image, text]
+supportsImageEdit: true
+supportsMaskEdit: true

@@ -11,3 +11,5 @@ prompt_tips:
   - Set image_config.aspect_ratio to control framing.
 input_modalities: [text, image]
 output_modalities: [image, text]
+supportsImageEdit: true
+supportsMaskEdit: true

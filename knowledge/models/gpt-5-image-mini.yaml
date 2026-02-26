@@ -10,3 +10,5 @@ prompt_tips:
   - Use batches to explore multiple variations quickly.
 input_modalities: [text, image]
 output_modalities: [image, text]
+supportsImageEdit: true
+supportsMaskEdit: true

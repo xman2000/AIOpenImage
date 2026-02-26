@@ -11,3 +11,5 @@ prompt_tips:
   - Include strict quality constraints for brand assets.
 input_modalities: [text, image]
 output_modalities: [image, text]
+supportsImageEdit: true
+supportsMaskEdit: true

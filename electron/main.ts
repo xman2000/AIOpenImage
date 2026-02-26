@@ -18,6 +18,13 @@ import type { GenerationOptions, ThemePreference } from "../src/shared/types";
 
 let mainWindow: BrowserWindow | null = null;
 
+const imageMimeByExtension: Record<string, string> = {
+  ".png": "image/png",
+  ".jpg": "image/jpeg",
+  ".jpeg": "image/jpeg",
+  ".webp": "image/webp"
+};
+
 const availableThemes: ThemePreference[] = [
   "system",
   "light",
@@ -52,6 +59,19 @@ const sendToRenderer = (channel: string, ...args: unknown[]): void => {
   if (mainWindow && !mainWindow.isDestroyed()) {
     mainWindow.webContents.send(channel, ...args);
   }
+};
+
+const outputDir = (): string => path.join(app.getPath("userData"), "output");
+
+const isPathInside = (targetPath: string, rootPath: string): boolean => {
+  const normalizedTarget = path.resolve(targetPath);
+  const normalizedRoot = path.resolve(rootPath);
+  const relative = path.relative(normalizedRoot, normalizedTarget);
+  if (!relative || relative === ".") {
+    return true;
+  }
+  const escaped = relative.startsWith("..") || path.isAbsolute(relative);
+  return escaped ? false : true;
 };
 
 const windowBackgroundColorFor = (preference: ThemePreference): string => {
@@ -180,13 +200,8 @@ const buildMenu = async (): Promise<void> => {
         },
         {
           label: "About",
-          click: async () => {
-            await dialog.showMessageBox({
-              type: "info",
-              title: "About",
-              message: "AI Open Image",
-              detail: "Desktop image generation tool with OpenRouter and Ollama backends."
-            });
+          click: () => {
+            sendToRenderer("ui:open-about");
           }
         }
       ]
@@ -251,6 +266,22 @@ app.on("browser-window-created", async () => {
 });
 
 ipcMain.handle("app:loadData", async () => getAppData(app.getPath("userData")));
+ipcMain.handle("app:getInfo", async () => {
+  const packagePath = path.join(app.getAppPath(), "package.json");
+  let releaseDate = "Local Build";
+  try {
+    const stat = await fs.stat(packagePath);
+    releaseDate = stat.mtime.toISOString().slice(0, 10);
+  } catch {
+    releaseDate = "Local Build";
+  }
+  return {
+    name: app.getName(),
+    version: app.getVersion(),
+    releaseDate,
+    platform: process.platform
+  };
+});
 ipcMain.handle("settings:get", async () => getSettings(app.getPath("userData")));
 ipcMain.handle("settings:save", async (_event, settings: Record<string, unknown>) => {
   const nextSettings = await saveSettings(app.getPath("userData"), {
@@ -341,6 +372,42 @@ ipcMain.handle("gallery:saveAs", async (_event, imagePath: string) => {
   }
   await fs.copyFile(imagePath, saveResult.filePath);
   return { ok: true, path: saveResult.filePath };
+});
+
+ipcMain.handle("gallery:loadAsDataUrl", async (_event, imagePath: string) => {
+  try {
+    const allowedDir = outputDir();
+    if (!isPathInside(imagePath, allowedDir)) {
+      return { ok: false, error: "Invalid source image path." };
+    }
+    const extension = path.extname(imagePath).toLowerCase();
+    const mime = imageMimeByExtension[extension] ?? "image/png";
+    const buffer = await fs.readFile(imagePath);
+    return { ok: true, dataUrl: `data:${mime};base64,${buffer.toString("base64")}` };
+  } catch (error) {
+    return { ok: false, error: `Failed to load image: ${String(error)}` };
+  }
+});
+
+ipcMain.handle("gallery:saveMask", async (_event, maskDataUrl: string, editRunId: string) => {
+  try {
+    if (!maskDataUrl.startsWith("data:image/")) {
+      return { ok: false, error: "Mask must be a data URL image payload." };
+    }
+    const [, payload] = maskDataUrl.split(",", 2);
+    if (!payload) {
+      return { ok: false, error: "Invalid mask payload." };
+    }
+    const masksDir = path.join(outputDir(), "masks");
+    await fs.mkdir(masksDir, { recursive: true });
+    const safeRunId = (editRunId || "run").replace(/[^a-zA-Z0-9_-]/g, "").slice(0, 48) || "run";
+    const filename = `mask_${new Date().toISOString().replace(/[:.]/g, "-")}_${safeRunId}.png`;
+    const maskPath = path.join(masksDir, filename);
+    await fs.writeFile(maskPath, Buffer.from(payload, "base64"));
+    return { ok: true, path: maskPath };
+  } catch (error) {
+    return { ok: false, error: `Failed to save mask: ${String(error)}` };
+  }
 });
 
 ipcMain.handle("gallery:exportZip", async () => {

@@ -11,3 +11,5 @@ prompt_tips:
   - Use image URLs for larger references.
 input_modalities: [text, image]
 output_modalities: [image, text]
+supportsImageEdit: true
+supportsMaskEdit: true

@@ -23,16 +23,22 @@ const modelRank = (modelId: string): number => {
   return index === -1 ? Number.MAX_SAFE_INTEGER : index;
 };
 
-const normalizeModel = (raw: Record<string, unknown>): ModelInfo => ({
-  model_id: String(raw.model_id ?? ""),
-  name: String(raw.name ?? raw.model_id ?? "Unknown"),
-  description: String(raw.description ?? ""),
-  best_for: Array.isArray(raw.best_for) ? raw.best_for.map(String) : [],
-  cost_estimate: String(raw.cost_estimate ?? "unknown"),
-  prompt_tips: Array.isArray(raw.prompt_tips) ? raw.prompt_tips.map(String) : [],
-  input_modalities: Array.isArray(raw.input_modalities) ? raw.input_modalities.map(String) : ["text"],
-  output_modalities: Array.isArray(raw.output_modalities) ? raw.output_modalities.map(String) : ["image"]
-});
+const normalizeModel = (raw: Record<string, unknown>): ModelInfo => {
+  const inputModalities = Array.isArray(raw.input_modalities) ? raw.input_modalities.map(String) : ["text"];
+  return {
+    model_id: String(raw.model_id ?? ""),
+    name: String(raw.name ?? raw.model_id ?? "Unknown"),
+    description: String(raw.description ?? ""),
+    best_for: Array.isArray(raw.best_for) ? raw.best_for.map(String) : [],
+    cost_estimate: String(raw.cost_estimate ?? "unknown"),
+    prompt_tips: Array.isArray(raw.prompt_tips) ? raw.prompt_tips.map(String) : [],
+    input_modalities: inputModalities,
+    output_modalities: Array.isArray(raw.output_modalities) ? raw.output_modalities.map(String) : ["image"],
+    supportsImageEdit:
+      typeof raw.supportsImageEdit === "boolean" ? raw.supportsImageEdit : inputModalities.includes("image"),
+    supportsMaskEdit: typeof raw.supportsMaskEdit === "boolean" ? raw.supportsMaskEdit : false
+  };
+};
 
 export const loadModels = async (appPath: string): Promise<ModelInfo[]> => {
   const modelsDir = path.join(appPath, "knowledge", "models");

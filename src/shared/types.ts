@@ -7,6 +7,13 @@ export type GenerationOptions = {
   imageSize?: string;
   seed?: number;
   referenceImage?: string;
+  maskImage?: string;
+  maskPath?: string;
+  editMode?: "generate" | "edit" | "mask-edit";
+  parentImageId?: string;
+  editRunId?: string;
+  editInstruction?: string;
+  sourceImagePath?: string;
 };
 
 export type ThemePreference =
@@ -48,6 +55,8 @@ export type ModelInfo = {
   prompt_tips: string[];
   input_modalities: string[];
   output_modalities: string[];
+  supportsImageEdit?: boolean;
+  supportsMaskEdit?: boolean;
 };
 
 export type AppData = {
@@ -74,6 +83,12 @@ export type GalleryItem = {
   batchMode?: boolean;
   batchIndex?: number;
   img2imgMode?: boolean;
+  editMode?: "generate" | "edit" | "mask-edit";
+  parentImageId?: string;
+  editRunId?: string;
+  editInstruction?: string;
+  maskPath?: string;
+  sourceImagePath?: string;
 };
 
 export type ImageMetadata = {

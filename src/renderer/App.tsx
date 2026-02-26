@@ -1,5 +1,5 @@
-import { useEffect, useMemo, useState } from "react";
-import type { ChangeEvent } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
+import type { ChangeEvent, PointerEvent as ReactPointerEvent } from "react";
 import type {
   AppData,
   GalleryItem,
@@ -14,6 +14,13 @@ type StylePreset = {
   aspectRatio: string;
   negativePrompt: string;
   promptSuffix: string;
+};
+
+type AppInfo = {
+  name: string;
+  version: string;
+  releaseDate: string;
+  platform: string;
 };
 
 const presets: StylePreset[] = [
@@ -116,13 +123,31 @@ const parseAverageCost = (costEstimate: string): number => {
   return Number.isFinite(single) ? single : 0;
 };
 
+const createEditRunId = (): string => {
+  const random = Math.random().toString(36).slice(2, 10);
+  return `run_${Date.now().toString(36)}_${random}`;
+};
+
 const App = (): JSX.Element => {
   const [loading, setLoading] = useState(true);
+  const [loadingStatusText, setLoadingStatusText] = useState("Starting up...");
+  const [showLoadingScreen, setShowLoadingScreen] = useState(true);
+  const [loadingScreenShown, setLoadingScreenShown] = useState(false);
+  const [loadingScreenHidden, setLoadingScreenHidden] = useState(false);
+  const [appVisible, setAppVisible] = useState(false);
   const [busy, setBusy] = useState(false);
   const [status, setStatus] = useState("");
   const [statusTone, setStatusTone] = useState<"idle" | "info" | "success" | "error">("idle");
   const [isSettingsOpen, setIsSettingsOpen] = useState(false);
+  const [isAboutOpen, setIsAboutOpen] = useState(false);
   const [activeImage, setActiveImage] = useState<GalleryItem | null>(null);
+  const [fullscreenImageSrc, setFullscreenImageSrc] = useState<string | null>(null);
+  const [appInfo, setAppInfo] = useState<AppInfo>({
+    name: "AI Open Image",
+    version: "0.1.0",
+    releaseDate: "Local Build",
+    platform: "win32"
+  });
 
   const [models, setModels] = useState<ModelInfo[]>([]);
   const [appData, setAppData] = useState<AppData>({
@@ -152,6 +177,26 @@ const App = (): JSX.Element => {
   const [presetName, setPresetName] = useState("None");
   const [referenceImage, setReferenceImage] = useState<string | undefined>(undefined);
   const [referencePreview, setReferencePreview] = useState<string | undefined>(undefined);
+  const [isEditMode, setIsEditMode] = useState(false);
+  const [isEditStudioOpen, setIsEditStudioOpen] = useState(false);
+  const [editSourceImage, setEditSourceImage] = useState<GalleryItem | null>(null);
+  const [editRunId, setEditRunId] = useState<string | undefined>(undefined);
+  const [latestEditResultSrc, setLatestEditResultSrc] = useState<string | null>(null);
+  const [compareValue, setCompareValue] = useState(50);
+  const [editSourceAspectRatio, setEditSourceAspectRatio] = useState(1);
+  const [maskTool, setMaskTool] = useState<"brush" | "erase" | "rect">("brush");
+  const [maskBrushSize, setMaskBrushSize] = useState(24);
+  const [showMaskTint, setShowMaskTint] = useState(true);
+  const [maskDataUrl, setMaskDataUrl] = useState<string | undefined>(undefined);
+  const [maskPath, setMaskPath] = useState<string | undefined>(undefined);
+  const [maskDirty, setMaskDirty] = useState(false);
+  const [modelWarnings, setModelWarnings] = useState<string[]>([]);
+  const maskCanvasRef = useRef<HTMLCanvasElement | null>(null);
+  const maskDrawingRef = useRef(false);
+  const maskLastPointRef = useRef<{ x: number; y: number } | null>(null);
+  const rectStartPointRef = useRef<{ x: number; y: number } | null>(null);
+  const rectBaseImageRef = useRef<ImageData | null>(null);
+  const bootStartedAtRef = useRef<number>(Date.now());
 
   const selectedModels = useMemo(
     () => models.filter((m) => selectedModelIds.includes(m.model_id)),
@@ -185,21 +230,66 @@ const App = (): JSX.Element => {
 
   useEffect(() => {
     const boot = async (): Promise<void> => {
-      const [loadedData, loadedModels] = await Promise.all([window.appApi.loadAppData(), window.appApi.listModels()]);
-      setAppData(loadedData);
-      setApiKeyInput(loadedData.settings.apiKey ?? "");
-      setBackendInput(loadedData.settings.imageBackend ?? "openrouter");
-      setOllamaBaseUrlInput(loadedData.settings.ollamaBaseUrl ?? "http://localhost:11434");
-      setThemeInput(loadedData.settings.themePreference ?? "system");
-      applyTheme(loadedData.settings.themePreference ?? "system");
-      setModels(loadedModels);
-      if (loadedModels.length > 0) {
-        setSelectedModelIds([loadedModels[0].model_id]);
+      try {
+        setLoadingStatusText("Loading workspace...");
+        const loadedData = await window.appApi.loadAppData();
+
+        setLoadingStatusText("Loading model catalog...");
+        const loadedModels = await window.appApi.listModels();
+
+        setLoadingStatusText("Loading app info...");
+        const loadedInfo = await window.appApi.getAppInfo();
+
+        setAppData(loadedData);
+        setAppInfo(loadedInfo);
+        setApiKeyInput(loadedData.settings.apiKey ?? "");
+        setBackendInput(loadedData.settings.imageBackend ?? "openrouter");
+        setOllamaBaseUrlInput(loadedData.settings.ollamaBaseUrl ?? "http://localhost:11434");
+        setThemeInput(loadedData.settings.themePreference ?? "system");
+        applyTheme(loadedData.settings.themePreference ?? "system");
+        setModels(loadedModels);
+        if (loadedModels.length > 0) {
+          setSelectedModelIds([loadedModels[0].model_id]);
+        }
+      } catch (error) {
+        setStatusTone("error");
+        setStatus(`Startup warning: ${String(error)}`);
+      } finally {
+        setLoading(false);
       }
-      setLoading(false);
     };
     void boot();
   }, []);
+
+  useEffect(() => {
+    const enterTimer = window.setTimeout(() => setLoadingScreenShown(true), 20);
+    return () => window.clearTimeout(enterTimer);
+  }, []);
+
+  useEffect(() => {
+    if (loading) {
+      return;
+    }
+    setLoadingStatusText("Ready.");
+    const elapsed = Date.now() - bootStartedAtRef.current;
+    const minVisibleMs = 900;
+    const transitionMs = 1500;
+    const startDelay = Math.max(0, minVisibleMs - elapsed);
+
+    const fadeTimer = window.setTimeout(() => {
+      setLoadingScreenHidden(true);
+      setAppVisible(true);
+    }, startDelay);
+
+    const removeTimer = window.setTimeout(() => {
+      setShowLoadingScreen(false);
+    }, startDelay + transitionMs);
+
+    return () => {
+      window.clearTimeout(fadeTimer);
+      window.clearTimeout(removeTimer);
+    };
+  }, [loading]);
 
   useEffect(() => {
     const media = window.matchMedia("(prefers-color-scheme: dark)");
@@ -211,6 +301,24 @@ const App = (): JSX.Element => {
     media.addEventListener("change", handler);
     return () => media.removeEventListener("change", handler);
   }, [appData.settings.themePreference]);
+
+  useEffect(() => {
+    if (!isEditMode || !editSourceImage) {
+      return;
+    }
+    const canvas = maskCanvasRef.current;
+    if (!canvas) {
+      return;
+    }
+    const width = Math.max(1, editSourceImage.metadata?.width ?? 1024);
+    const height = Math.max(1, editSourceImage.metadata?.height ?? 1024);
+    canvas.width = width;
+    canvas.height = height;
+    const ctx = canvas.getContext("2d");
+    if (ctx) {
+      ctx.clearRect(0, 0, width, height);
+    }
+  }, [isEditMode, editSourceImage]);
 
   const refreshData = async (): Promise<void> => {
     const latest = await window.appApi.loadAppData();
@@ -232,6 +340,7 @@ const App = (): JSX.Element => {
 
   useEffect(() => {
     const unsubOpenSettings = window.appApi.onOpenSettings(() => setIsSettingsOpen(true));
+    const unsubOpenAbout = window.appApi.onOpenAbout(() => setIsAboutOpen(true));
     const unsubTheme = window.appApi.onThemeMenuChange((theme) => {
       setThemeInput(theme);
       setAppData((prev) => ({ ...prev, settings: { ...prev.settings, themePreference: theme } }));
@@ -249,15 +358,50 @@ const App = (): JSX.Element => {
 
     return () => {
       unsubOpenSettings();
+      unsubOpenAbout();
       unsubTheme();
       unsubExport();
       unsubClear();
     };
   }, []);
 
+  useEffect(() => {
+    const onKeyDown = (event: KeyboardEvent): void => {
+      const target = event.target as HTMLElement;
+      const isTyping = target.tagName === "INPUT" || target.tagName === "TEXTAREA" || target.tagName === "SELECT";
+
+      if (event.key === "Escape") {
+        if (fullscreenImageSrc) {
+          setFullscreenImageSrc(null);
+          return;
+        }
+        if (isEditStudioOpen) {
+          setIsEditStudioOpen(false);
+          return;
+        }
+      }
+
+      if (isEditStudioOpen && !isTyping) {
+        if (event.key === "b" || event.key === "B") {
+          setMaskTool("brush");
+        } else if (event.key === "e" || event.key === "E") {
+          setMaskTool("erase");
+        } else if (event.key === "r" || event.key === "R") {
+          setMaskTool("rect");
+        } else if (event.key === "[") {
+          setMaskBrushSize((prev) => Math.max(1, prev - 2));
+        } else if (event.key === "]") {
+          setMaskBrushSize((prev) => Math.min(50, prev + 2));
+        }
+      }
+    };
+    window.addEventListener("keydown", onKeyDown);
+    return () => window.removeEventListener("keydown", onKeyDown);
+  }, [fullscreenImageSrc, isEditStudioOpen]);
+
   const onSaveSettings = async (): Promise<void> => {
     const next = await window.appApi.saveSettings({
-      apiKey: apiKeyInput.trim(),
+      apiKey: backendInput === "openrouter" ? apiKeyInput.trim() : undefined,
       imageBackend: backendInput,
       ollamaBaseUrl: ollamaBaseUrlInput.trim() || "http://localhost:11434"
     });
@@ -314,23 +458,338 @@ const App = (): JSX.Element => {
     setReferencePreview(undefined);
   };
 
+  const clearMask = (): void => {
+    const canvas = maskCanvasRef.current;
+    if (!canvas) {
+      setMaskDataUrl(undefined);
+      setMaskDirty(false);
+      return;
+    }
+    const ctx = canvas.getContext("2d");
+    if (!ctx) {
+      return;
+    }
+    ctx.clearRect(0, 0, canvas.width, canvas.height);
+    setMaskDataUrl(undefined);
+    setMaskPath(undefined);
+    setMaskDirty(false);
+  };
+
+  const updateMaskData = (): void => {
+    const canvas = maskCanvasRef.current;
+    if (!canvas) {
+      return;
+    }
+    const exportCanvas = document.createElement("canvas");
+    exportCanvas.width = canvas.width;
+    exportCanvas.height = canvas.height;
+    const exportCtx = exportCanvas.getContext("2d");
+    if (!exportCtx) {
+      return;
+    }
+    exportCtx.drawImage(canvas, 0, 0);
+    const imageData = exportCtx.getImageData(0, 0, exportCanvas.width, exportCanvas.height);
+    const pixels = imageData.data;
+    for (let index = 0; index < pixels.length; index += 4) {
+      const alpha = pixels[index + 3];
+      if (alpha > 0) {
+        pixels[index] = 255;
+        pixels[index + 1] = 255;
+        pixels[index + 2] = 255;
+      }
+    }
+    exportCtx.putImageData(imageData, 0, 0);
+    setMaskDataUrl(exportCanvas.toDataURL("image/png"));
+    setMaskPath(undefined);
+    setMaskDirty(true);
+  };
+
+  const pointerToCanvas = (event: ReactPointerEvent<HTMLCanvasElement>): { x: number; y: number } | null => {
+    const canvas = maskCanvasRef.current;
+    if (!canvas) {
+      return null;
+    }
+    const rect = canvas.getBoundingClientRect();
+    const scaleX = canvas.width / rect.width;
+    const scaleY = canvas.height / rect.height;
+    return {
+      x: (event.clientX - rect.left) * scaleX,
+      y: (event.clientY - rect.top) * scaleY
+    };
+  };
+
+  const drawMaskStroke = (from: { x: number; y: number }, to: { x: number; y: number }): void => {
+    const canvas = maskCanvasRef.current;
+    if (!canvas) {
+      return;
+    }
+    const ctx = canvas.getContext("2d");
+    if (!ctx) {
+      return;
+    }
+
+    ctx.save();
+    const width = Math.max(1, maskBrushSize);
+    ctx.lineCap = "round";
+    ctx.lineJoin = "round";
+    ctx.lineWidth = width;
+    if (maskTool === "erase") {
+      ctx.globalCompositeOperation = "destination-out";
+      ctx.strokeStyle = "rgba(0,0,0,1)";
+      ctx.beginPath();
+      ctx.moveTo(from.x, from.y);
+      ctx.lineTo(to.x, to.y);
+      ctx.stroke();
+    } else {
+      ctx.globalCompositeOperation = "source-over";
+      if (showMaskTint) {
+        ctx.strokeStyle = "rgba(255, 64, 64, 0.44)";
+        ctx.lineWidth = width;
+        ctx.beginPath();
+        ctx.moveTo(from.x, from.y);
+        ctx.lineTo(to.x, to.y);
+        ctx.stroke();
+      } else {
+        ctx.strokeStyle = "rgba(0,0,0,0.45)";
+        ctx.lineWidth = width + 2;
+        ctx.beginPath();
+        ctx.moveTo(from.x, from.y);
+        ctx.lineTo(to.x, to.y);
+        ctx.stroke();
+
+        ctx.strokeStyle = "rgba(255,255,255,0.49)";
+        ctx.lineWidth = width;
+        ctx.beginPath();
+        ctx.moveTo(from.x, from.y);
+        ctx.lineTo(to.x, to.y);
+        ctx.stroke();
+      }
+    }
+    ctx.restore();
+  };
+
+  const onMaskPointerDown = (event: ReactPointerEvent<HTMLCanvasElement>): void => {
+    const point = pointerToCanvas(event);
+    if (!point) {
+      return;
+    }
+    maskDrawingRef.current = true;
+    maskLastPointRef.current = point;
+    if (maskTool === "rect") {
+      const canvas = maskCanvasRef.current;
+      const ctx = canvas?.getContext("2d");
+      if (canvas && ctx) {
+        rectStartPointRef.current = point;
+        rectBaseImageRef.current = ctx.getImageData(0, 0, canvas.width, canvas.height);
+      }
+    } else {
+      drawMaskStroke(point, point);
+      updateMaskData();
+    }
+  };
+
+  const onMaskPointerMove = (event: ReactPointerEvent<HTMLCanvasElement>): void => {
+    if (!maskDrawingRef.current) {
+      return;
+    }
+    const point = pointerToCanvas(event);
+    const last = maskLastPointRef.current;
+    if (!point || !last) {
+      return;
+    }
+    if (maskTool === "rect") {
+      const canvas = maskCanvasRef.current;
+      const ctx = canvas?.getContext("2d");
+      const start = rectStartPointRef.current;
+      const base = rectBaseImageRef.current;
+      if (!canvas || !ctx || !start || !base) {
+        return;
+      }
+      ctx.putImageData(base, 0, 0);
+      const x = Math.min(start.x, point.x);
+      const y = Math.min(start.y, point.y);
+      const width = Math.abs(point.x - start.x);
+      const height = Math.abs(point.y - start.y);
+      ctx.save();
+      ctx.globalCompositeOperation = "source-over";
+      ctx.fillStyle = showMaskTint ? "rgba(255, 64, 64, 0.16)" : "rgba(255,255,255,0.19)";
+      ctx.strokeStyle = showMaskTint ? "rgba(255, 96, 96, 0.48)" : "rgba(255,255,255,0.45)";
+      ctx.lineWidth = 2;
+      ctx.fillRect(x, y, width, height);
+      ctx.strokeRect(x, y, width, height);
+      ctx.restore();
+      return;
+    }
+    drawMaskStroke(last, point);
+    maskLastPointRef.current = point;
+    updateMaskData();
+  };
+
+  const onMaskPointerUp = (event: ReactPointerEvent<HTMLCanvasElement>): void => {
+    if (!maskDrawingRef.current) {
+      return;
+    }
+    const canvas = maskCanvasRef.current;
+    const start = rectStartPointRef.current;
+    const end = pointerToCanvas(event);
+    if (canvas && start && end && maskTool === "rect") {
+      const ctx = canvas.getContext("2d");
+      if (ctx) {
+        if (rectBaseImageRef.current) {
+          ctx.putImageData(rectBaseImageRef.current, 0, 0);
+        }
+        const x = Math.min(start.x, end.x);
+        const y = Math.min(start.y, end.y);
+        const width = Math.abs(end.x - start.x);
+        const height = Math.abs(end.y - start.y);
+        ctx.save();
+        ctx.globalCompositeOperation = "source-over";
+        ctx.fillStyle = showMaskTint ? "rgba(255, 64, 64, 0.45)" : "rgba(255,255,255,0.49)";
+        ctx.fillRect(x, y, width, height);
+        ctx.restore();
+        updateMaskData();
+      }
+    }
+    maskDrawingRef.current = false;
+    maskLastPointRef.current = null;
+    rectStartPointRef.current = null;
+    rectBaseImageRef.current = null;
+  };
+
+  const onMaskPointerLeave = (): void => {
+    if (maskTool === "rect") {
+      const canvas = maskCanvasRef.current;
+      const ctx = canvas?.getContext("2d");
+      if (ctx && rectBaseImageRef.current) {
+        ctx.putImageData(rectBaseImageRef.current, 0, 0);
+      }
+    }
+    maskDrawingRef.current = false;
+    maskLastPointRef.current = null;
+    rectStartPointRef.current = null;
+    rectBaseImageRef.current = null;
+  };
+
+  const onStartEdit = async (item: GalleryItem): Promise<void> => {
+    setBusy(true);
+    setStatusTone("info");
+    setStatus("Loading source image for editing...");
+    const loaded = await window.appApi.loadImageAsDataUrl(item.path);
+    if (!loaded.ok || !loaded.dataUrl) {
+      setBusy(false);
+      setStatusTone("error");
+      setStatus(loaded.error ?? "Could not load source image for editing.");
+      return;
+    }
+    setIsEditMode(true);
+    setEditSourceImage(item);
+    setEditRunId(createEditRunId());
+    setReferenceImage(loaded.dataUrl);
+    setReferencePreview(imageSrc(item.path));
+    const width = item.metadata?.width ?? 1024;
+    const height = item.metadata?.height ?? 1024;
+    setEditSourceAspectRatio(Math.max(1, width) / Math.max(1, height));
+    setPrompt("");
+    setLatestEditResultSrc(null);
+    setCompareValue(50);
+    setMaskDataUrl(undefined);
+    setMaskPath(undefined);
+    setMaskDirty(false);
+    clearMask();
+    setActiveImage(null);
+    setIsEditStudioOpen(true);
+    setBusy(false);
+    setStatusTone("info");
+    setStatus(`Editing mode active for ${item.filename}. Add an instruction, then generate.`);
+  };
+
+  const exitEditMode = (): void => {
+    setIsEditMode(false);
+    setEditSourceImage(null);
+    setEditRunId(undefined);
+    setMaskDataUrl(undefined);
+    setMaskPath(undefined);
+    setMaskDirty(false);
+    setLatestEditResultSrc(null);
+    setCompareValue(50);
+    setEditSourceAspectRatio(1);
+    setIsEditStudioOpen(false);
+    maskDrawingRef.current = false;
+    maskLastPointRef.current = null;
+    clearReferenceImage();
+    clearMask();
+    setStatusTone("info");
+    setStatus("Exited edit mode.");
+  };
+
   const onGenerate = async (): Promise<void> => {
     if (!prompt.trim() || selectedModelIds.length === 0) {
       return;
     }
+    if (isEditMode && !editSourceImage) {
+      setStatusTone("error");
+      setStatus("Edit mode requires a source image.");
+      return;
+    }
+    if (isEditMode && !referenceImage) {
+      setStatusTone("error");
+      setStatus("Unable to locate source image payload for edit mode.");
+      return;
+    }
 
     setBusy(true);
+    setModelWarnings([]);
     setStatusTone("info");
-    setStatus("Initializing generation...");
+    setStatus(isEditMode ? "Initializing edit run..." : "Initializing generation...");
 
     try {
       const safeCount = batchMode ? Math.max(2, Math.min(4, batchCount)) : 1;
       let successCount = 0;
       let failedCount = 0;
+      const warnings: string[] = [];
+      let currentMaskPath = maskPath;
+      let latestProducedPath: string | null = null;
+
+      if (isEditMode && maskDataUrl && maskDirty) {
+        const runId = editRunId ?? createEditRunId();
+        if (!editRunId) {
+          setEditRunId(runId);
+        }
+        const savedMask = await window.appApi.saveMask(maskDataUrl, runId);
+        if (savedMask.ok && savedMask.path) {
+          currentMaskPath = savedMask.path;
+          setMaskPath(savedMask.path);
+          setMaskDirty(false);
+        } else {
+          warnings.push(savedMask.error ?? "Mask could not be persisted. Continuing without saved mask path.");
+        }
+      }
 
       for (const modelId of selectedModelIds) {
-        const modelName = models.find((m) => m.model_id === modelId)?.name ?? modelId;
-        setStatus(`Generating with ${modelName}${batchMode ? ` (${safeCount} images)` : ""}...`);
+        const model = models.find((m) => m.model_id === modelId);
+        const modelName = model?.name ?? modelId;
+        const canImageInput = Boolean(model?.input_modalities?.includes("image"));
+        const canMaskEdit = Boolean(model?.supportsMaskEdit);
+        const wantsMaskEdit = isEditMode && Boolean(maskDataUrl);
+        const modelMaskEnabled = wantsMaskEdit && canMaskEdit;
+
+        if (isEditMode && !canImageInput) {
+          warnings.push(`${modelName}: model does not support image input, skipped.`);
+          failedCount += batchMode ? safeCount : 1;
+          continue;
+        }
+        if (wantsMaskEdit && !canMaskEdit) {
+          warnings.push(`${modelName}: mask edits unsupported, using full-image edit fallback.`);
+        }
+
+        setStatus(
+          `${isEditMode ? "Editing" : "Generating"} with ${modelName}${batchMode ? ` (${safeCount} images)` : ""}...`
+        );
+
+        const runId = isEditMode ? (editRunId ?? createEditRunId()) : undefined;
+        if (isEditMode && !editRunId && runId) {
+          setEditRunId(runId);
+        }
 
         const options: GenerationOptions = {
           model: modelId,
@@ -340,29 +799,57 @@ const App = (): JSX.Element => {
           aspectRatio,
           imageSize: modelId.toLowerCase().includes("gemini") ? imageSize : undefined,
           seed: useSeed ? seedValue : undefined,
-          referenceImage
+          referenceImage,
+          maskImage: modelMaskEnabled ? maskDataUrl : undefined,
+          maskPath: modelMaskEnabled ? currentMaskPath : undefined,
+          editMode: isEditMode ? (modelMaskEnabled ? "mask-edit" : "edit") : "generate",
+          parentImageId: isEditMode ? editSourceImage?.id : undefined,
+          editRunId: isEditMode ? runId : undefined,
+          editInstruction: isEditMode ? prompt.trim() : undefined,
+          sourceImagePath: isEditMode ? editSourceImage?.path : undefined
         };
 
         if (batchMode) {
           const results = await window.appApi.generateBatch(options, safeCount);
-          successCount += results.filter((r) => r.ok).length;
+          const successful = results.filter((r) => r.ok);
+          successCount += successful.length;
           failedCount += results.filter((r) => !r.ok).length;
+          const latest = successful.at(-1)?.image;
+          if (latest?.path) {
+            latestProducedPath = latest.path;
+          }
         } else {
           const result = await window.appApi.generateImage(options);
           if (result.ok) {
             successCount += 1;
+            if (result.image?.path) {
+              latestProducedPath = result.image.path;
+            }
           } else {
             failedCount += 1;
           }
         }
       }
 
+      setModelWarnings(warnings);
+      if (isEditMode && latestProducedPath) {
+        setLatestEditResultSrc(imageSrc(latestProducedPath));
+      }
+
       if (failedCount > 0) {
         setStatusTone("error");
-        setStatus(`Completed: ${successCount} succeeded, ${failedCount} failed.`);
+        setStatus(
+          `${isEditMode ? "Edit run" : "Generation"} completed: ${successCount} succeeded, ${failedCount} failed.${
+            warnings.length ? ` ${warnings.length} warning(s).` : ""
+          }`
+        );
       } else {
         setStatusTone("success");
-        setStatus(`Completed: ${successCount} image(s) generated.`);
+        setStatus(
+          `${isEditMode ? "Edit run" : "Generation"} completed: ${successCount} image(s) produced.${
+            warnings.length ? ` ${warnings.length} warning(s).` : ""
+          }`
+        );
       }
 
       await refreshData();
@@ -404,12 +891,9 @@ const App = (): JSX.Element => {
     setStatus("Loaded prompt, style, and advanced controls from selected gallery image.");
   };
 
-  if (loading) {
-    return <main className="app-shell loading">Loading application...</main>;
-  }
-
   return (
-    <main className="app-shell desktop">
+    <>
+      <main className={`app-shell desktop ${appVisible ? "app-shell-visible" : "app-shell-hidden"}`}>
       <header className="desktop-header">
         <div>
           <h1>AI Open Image</h1>
@@ -431,6 +915,7 @@ const App = (): JSX.Element => {
             ))}
           </select>
           <button type="button" className="ghost" onClick={() => setIsSettingsOpen(true)}>Settings</button>
+          <button type="button" className="ghost" onClick={() => setIsAboutOpen(true)}>About</button>
           <button type="button" onClick={onExportZip} disabled={appData.gallery.length === 0}>Export ZIP</button>
         </div>
       </header>
@@ -444,13 +929,27 @@ const App = (): JSX.Element => {
       <section className="workspace">
         <aside className="tool-panel">
           <section>
+            {isEditMode && editSourceImage ? (
+              <div className="edit-callout">
+                <strong>Edit Mode</strong>
+                <small>Source: {editSourceImage.filename}</small>
+                <small>Run: {editRunId?.slice(0, 12) ?? "pending"}</small>
+                <button type="button" className="ghost" onClick={() => setIsEditStudioOpen(true)}>Open Edit Studio</button>
+                <button type="button" className="ghost" onClick={exitEditMode}>Exit Edit Mode</button>
+              </div>
+            ) : null}
+
             <label>Prompt</label>
             <textarea
               className="prompt-glow"
               value={prompt}
               onChange={(e) => setPrompt(e.target.value)}
               rows={7}
-              placeholder="Positive Prompt - This tells the model what you want to see. Be concrete and intentional."
+              placeholder={
+                isEditMode
+                  ? "Edit instruction - e.g. no, i meant blonde hair, keep pose and lighting."
+                  : "Positive Prompt - This tells the model what you want to see. Be concrete and intentional."
+              }
             />
           </section>
 
@@ -577,29 +1076,55 @@ const App = (): JSX.Element => {
                 <input type="number" value={seedValue} onChange={(e) => setSeedValue(Number.parseInt(e.target.value, 10) || 0)} />
               ) : null}
 
-              <label>Image-to-Image</label>
-              <input type="file" accept="image/png,image/jpeg,image/webp" onChange={onReferenceImage} />
-              {!supportsImageInput ? <small className="warn">One or more selected models may not support image input.</small> : null}
-              {referencePreview ? (
+              {isEditMode ? (
                 <>
-                  <img className="preview" src={referencePreview} alt="Reference" />
-                  <button type="button" className="ghost" onClick={clearReferenceImage}>Remove Reference</button>
+                  <label>Edit Source</label>
+                  {referencePreview ? <img className="preview" src={referencePreview} alt="Edit Source" /> : null}
+                  <small className="muted">Mask drawing and compare controls live in Edit Studio.</small>
+                  <button type="button" className="ghost" onClick={() => setIsEditStudioOpen(true)}>Open Edit Studio</button>
                 </>
-              ) : null}
+              ) : (
+                <>
+                  <label>Image-to-Image</label>
+                  <input type="file" accept="image/png,image/jpeg,image/webp" onChange={onReferenceImage} />
+                  {!supportsImageInput ? <small className="warn">One or more selected models may not support image input.</small> : null}
+                  {referencePreview ? (
+                    <>
+                      <img className="preview" src={referencePreview} alt="Reference" />
+                      <button type="button" className="ghost" onClick={clearReferenceImage}>Remove Reference</button>
+                    </>
+                  ) : null}
+                </>
+              )}
             </div>
           </details>
 
           <button
             type="button"
             className="generate"
-            disabled={busy || !prompt || (requiresApiKey && !appData.settings.apiKey) || selectedModelIds.length === 0}
+            disabled={
+              busy ||
+              !prompt ||
+              (requiresApiKey && !appData.settings.apiKey) ||
+              selectedModelIds.length === 0 ||
+              (isEditMode && !referenceImage)
+            }
             onClick={onGenerate}
           >
             {busy
-              ? "Generating..."
-              : `Generate ${batchMode ? `${Math.max(2, Math.min(4, batchCount))} per model` : "1 per model"}`}
+              ? isEditMode
+                ? "Editing..."
+                : "Generating..."
+              : `${isEditMode ? "Edit" : "Generate"} ${batchMode ? `${Math.max(2, Math.min(4, batchCount))} per model` : "1 per model"}`}
           </button>
           <p className={`status ${statusTone}`}>{status}</p>
+          {modelWarnings.length ? (
+            <div className="warning-list">
+              {modelWarnings.map((warning, index) => (
+                <small key={`${warning}-${index}`} className="warn">{warning}</small>
+              ))}
+            </div>
+          ) : null}
         </aside>
 
         <section className="content-panel">
@@ -640,6 +1165,14 @@ const App = (): JSX.Element => {
                       <summary>Prompt</summary>
                       <p>{item.prompt}</p>
                     </details>
+                    <div className="tag-row">
+                      {item.editMode && item.editMode !== "generate" ? (
+                        <small className="tag">{item.editMode === "mask-edit" ? "Mask Edit" : "Edited"}</small>
+                      ) : null}
+                      {item.editRunId ? <small className="tag">Run {item.editRunId.slice(0, 8)}</small> : null}
+                      {item.parentImageId ? <small className="tag">From {item.parentImageId.slice(0, 8)}</small> : null}
+                    </div>
+                    <button type="button" className="ghost" onClick={() => void onStartEdit(item)}>Edit</button>
                     <button type="button" className="ghost" onClick={() => onReuseImageSettings(item)}>Use Settings</button>
                     <button type="button" onClick={() => onSaveImageAs(item)}>Save As...</button>
                   </div>
@@ -700,6 +1233,234 @@ const App = (): JSX.Element => {
         </div>
       ) : null}
 
+      {isAboutOpen ? (
+        <div className="modal-backdrop" role="dialog" aria-modal="true" aria-label="About">
+          <div className="modal about-modal">
+            <header className="modal-header">
+              <h3>About</h3>
+            </header>
+            <div className="modal-body">
+              <div className="about-hero">
+                <div className="about-title">{appInfo.name}</div>
+                <div className="about-subtitle">Desktop AI image studio</div>
+              </div>
+
+              <div className="about-grid">
+                <div className="about-card">
+                  <div className="about-card-label">Version</div>
+                  <div className="about-card-value">{appInfo.version}</div>
+                </div>
+                <div className="about-card">
+                  <div className="about-card-label">Release Date</div>
+                  <div className="about-card-value">{appInfo.releaseDate}</div>
+                </div>
+                <div className="about-card">
+                  <div className="about-card-label">Platform</div>
+                  <div className="about-card-value">{appInfo.platform}</div>
+                </div>
+              </div>
+
+              <div className="about-links">
+                <a
+                  className="about-link"
+                  href="https://github.com/aporb/openrouter-image-gen"
+                  target="_blank"
+                  rel="noreferrer"
+                >
+                  OpenRouter Image Gen
+                </a>
+                <a className="about-link" href="https://openrouter.ai" target="_blank" rel="noreferrer">OpenRouter</a>
+                <a className="about-link" href="https://ollama.com" target="_blank" rel="noreferrer">Ollama</a>
+                <a className="about-link" href="https://www.electronjs.org" target="_blank" rel="noreferrer">Electron</a>
+                <a className="about-link" href="https://vite.dev" target="_blank" rel="noreferrer">Vite</a>
+                <a className="about-link" href="https://react.dev" target="_blank" rel="noreferrer">React</a>
+              </div>
+            </div>
+            <footer className="modal-footer">
+              <button type="button" className="ghost" onClick={() => setIsAboutOpen(false)}>Close</button>
+            </footer>
+          </div>
+        </div>
+      ) : null}
+
+      {isEditStudioOpen && isEditMode && editSourceImage ? (
+        <div className="edit-studio-backdrop" role="dialog" aria-modal="true" aria-label="Edit Studio">
+          <div className="edit-studio" onClick={(e) => e.stopPropagation()}>
+            <header className="edit-studio-header">
+              <div>
+                <h3>Edit Studio</h3>
+                <small className="muted">Source: {editSourceImage.filename}</small>
+              </div>
+              <div className="toolbar-actions">
+                <button type="button" className="ghost" onClick={() => setIsEditStudioOpen(false)}>Close Studio</button>
+                <button type="button" className="ghost" onClick={exitEditMode}>Exit Edit Mode</button>
+              </div>
+            </header>
+
+            <div className="edit-studio-body">
+              <section className="edit-studio-canvas-section">
+                <div className="mask-tools">
+                  <div className="tool-group" role="group" aria-label="Mask tools">
+                    <button
+                      type="button"
+                      className={`tool-btn ${maskTool === "brush" ? "active" : ""}`}
+                      onClick={() => setMaskTool("brush")}
+                      title="Brush (B)"
+                      aria-label="Brush tool"
+                    >
+                      <svg viewBox="0 0 24 24" aria-hidden="true">
+                        <circle cx="9" cy="19" r="3" />
+                        <path d="M10.5 16.5C12 14 14 11 17 8c2-2 4-3 4-3" />
+                      </svg>
+                    </button>
+                    <button
+                      type="button"
+                      className={`tool-btn ${maskTool === "erase" ? "active" : ""}`}
+                      onClick={() => setMaskTool("erase")}
+                      title="Eraser (E)"
+                      aria-label="Eraser tool"
+                    >
+                      <svg viewBox="0 0 24 24" aria-hidden="true">
+                        <path d="M20 20H9.5l-5.3-5.3a2 2 0 010-2.8L13.4 3a2 2 0 012.8 0l5.5 5.5a2 2 0 010 2.8L15 18" />
+                        <path d="M18 13l-8-8" />
+                      </svg>
+                    </button>
+                    <button
+                      type="button"
+                      className={`tool-btn ${maskTool === "rect" ? "active" : ""}`}
+                      onClick={() => setMaskTool("rect")}
+                      title="Rectangle Select (R)"
+                      aria-label="Rectangle tool"
+                    >
+                      <svg viewBox="0 0 24 24" aria-hidden="true">
+                        <rect x="3" y="3" width="18" height="18" rx="2" strokeDasharray="4 2" />
+                      </svg>
+                    </button>
+                  </div>
+                  <label className="brush-size" title="Brush size">
+                    <small>{maskBrushSize}px</small>
+                    <input
+                      type="range"
+                      min={1}
+                      max={50}
+                      value={maskBrushSize}
+                      onChange={(e) => setMaskBrushSize(Math.max(1, Math.min(50, Number.parseInt(e.target.value, 10) || 24)))}
+                    />
+                  </label>
+                  <label className="toggle-inline mask-tint-toggle">
+                    <input type="checkbox" checked={showMaskTint} onChange={(e) => setShowMaskTint(e.target.checked)} />
+                    <span>Red Tint</span>
+                  </label>
+                  <button type="button" className="ghost" onClick={clearMask}>Clear Mask</button>
+                </div>
+
+                <div
+                  className="edit-studio-canvas-wrap"
+                  style={{
+                    ["--stage-aspect" as string]: `${editSourceAspectRatio}`
+                  }}
+                >
+                  {referencePreview ? (
+                    <img
+                      className="edit-studio-image"
+                      src={referencePreview}
+                      alt="Edit source"
+                      onLoad={(event) => {
+                        const img = event.currentTarget;
+                        if (img.naturalWidth > 0 && img.naturalHeight > 0) {
+                          setEditSourceAspectRatio(img.naturalWidth / img.naturalHeight);
+                        }
+                      }}
+                    />
+                  ) : null}
+                  <canvas
+                    ref={maskCanvasRef}
+                    className="edit-studio-mask-canvas"
+                    onPointerDown={onMaskPointerDown}
+                    onPointerMove={onMaskPointerMove}
+                    onPointerUp={onMaskPointerUp}
+                    onPointerLeave={onMaskPointerLeave}
+                  />
+                </div>
+                {latestEditResultSrc && referencePreview ? (
+                  <div className="compare-panel">
+                    <div className="row">
+                      <strong>Compare</strong>
+                      <small className="muted">Before / Latest result</small>
+                    </div>
+                    <div
+                      className="compare-stage"
+                      style={{
+                        ["--stage-aspect" as string]: `${editSourceAspectRatio}`
+                      }}
+                    >
+                      <div className="compare-after">
+                        <img src={latestEditResultSrc} alt="Edited result" className="compare-layer-image" />
+                      </div>
+                      <div
+                        className="compare-before"
+                        style={{
+                          clipPath: `inset(0 ${100 - compareValue}% 0 0)`
+                        }}
+                      >
+                        <img src={referencePreview} alt="Original" className="compare-layer-image" />
+                      </div>
+                      <div className="compare-divider" style={{ left: `${compareValue}%` }} />
+                    </div>
+                    <input
+                      type="range"
+                      min={0}
+                      max={100}
+                      value={compareValue}
+                      onChange={(e) => setCompareValue(Number.parseInt(e.target.value, 10) || 0)}
+                    />
+                  </div>
+                ) : null}
+              </section>
+
+              <aside className="edit-studio-controls">
+                <label>Edit Instruction</label>
+                <textarea
+                  className="prompt-glow"
+                  value={prompt}
+                  onChange={(e) => setPrompt(e.target.value)}
+                  rows={6}
+                  placeholder="Describe what to change while keeping the rest intact."
+                />
+
+                <label>Negative Prompt</label>
+                <textarea
+                  className="negative-glow"
+                  value={negativePrompt}
+                  onChange={(e) => setNegativePrompt(e.target.value)}
+                  rows={4}
+                  placeholder="What to avoid in the edit"
+                />
+
+                <small className="muted">Models selected: {selectedModelIds.length}</small>
+                <small className="muted">Batch: {batchMode ? `${Math.max(2, Math.min(4, batchCount))} per model` : "1 per model"}</small>
+                {modelWarnings.length ? (
+                  <div className="warning-list">
+                    {modelWarnings.map((warning, index) => (
+                      <small key={`studio-${warning}-${index}`} className="warn">{warning}</small>
+                    ))}
+                  </div>
+                ) : null}
+
+                <button
+                  type="button"
+                  className="generate"
+                  disabled={busy || !prompt || selectedModelIds.length === 0 || !referenceImage}
+                  onClick={onGenerate}
+                >
+                  {busy ? "Editing..." : `Edit ${batchMode ? `${Math.max(2, Math.min(4, batchCount))} per model` : "1 per model"}`}
+                </button>
+              </aside>
+            </div>
+          </div>
+        </div>
+      ) : null}
+
       {activeImage ? (
         <div
           className="image-popover-backdrop"
@@ -715,6 +1476,7 @@ const App = (): JSX.Element => {
                 <small className="muted">{new Date(activeImage.timestamp).toLocaleString()}</small>
               </div>
               <div className="toolbar-actions">
+                <button type="button" className="ghost" onClick={() => void onStartEdit(activeImage)}>Edit</button>
                 <button type="button" className="ghost" onClick={() => onReuseImageSettings(activeImage)}>Use Settings</button>
                 <button type="button" onClick={() => onSaveImageAs(activeImage)}>Save As...</button>
                 <button type="button" className="ghost" onClick={() => setActiveImage(null)}>Close</button>
@@ -723,7 +1485,13 @@ const App = (): JSX.Element => {
 
             <div className="image-popover-body">
               <div className="image-popover-preview-wrap">
-                <img src={imageSrc(activeImage.path)} alt={activeImage.prompt.slice(0, 80)} className="image-popover-preview" />
+                <img
+                  src={imageSrc(activeImage.path)}
+                  alt={activeImage.prompt.slice(0, 80)}
+                  className="image-popover-preview"
+                  onClick={() => setFullscreenImageSrc(imageSrc(activeImage.path))}
+                  title="Click to view fullscreen"
+                />
               </div>
               <aside className="image-popover-meta">
                 <h3>Generation Details</h3>
@@ -752,6 +1520,14 @@ const App = (): JSX.Element => {
                   <small>{activeImage.stylePreset ?? "None"}</small>
                   <small>Image-to-Image</small>
                   <small>{activeImage.img2imgMode ? "Yes" : "No"}</small>
+                  <small>Edit Mode</small>
+                  <small>{activeImage.editMode ?? "generate"}</small>
+                  <small>Edit Run</small>
+                  <small>{activeImage.editRunId ?? "None"}</small>
+                  <small>Parent Image</small>
+                  <small>{activeImage.parentImageId ?? "None"}</small>
+                  <small>Mask</small>
+                  <small>{activeImage.maskPath ? "Attached" : "None"}</small>
                   <small>Batch</small>
                   <small>{activeImage.batchMode ? `Yes (variation ${activeImage.batchIndex ?? "?"})` : "No"}</small>
                 </div>
@@ -759,6 +1535,12 @@ const App = (): JSX.Element => {
                   <summary>Prompt</summary>
                   <p>{activeImage.prompt}</p>
                 </details>
+                {activeImage.editInstruction ? (
+                  <details open>
+                    <summary>Edit Instruction</summary>
+                    <p>{activeImage.editInstruction}</p>
+                  </details>
+                ) : null}
                 <details open>
                   <summary>Negative Prompt</summary>
                   <p>{activeImage.negativePrompt ?? "None"}</p>
@@ -768,7 +1550,46 @@ const App = (): JSX.Element => {
           </div>
         </div>
       ) : null}
-    </main>
+
+      {fullscreenImageSrc ? (
+        <div
+          className="fullscreen-image-backdrop"
+          role="dialog"
+          aria-modal="true"
+          aria-label="Fullscreen image preview"
+          onClick={() => setFullscreenImageSrc(null)}
+        >
+          <img
+            src={fullscreenImageSrc}
+            alt="Fullscreen preview"
+            className="fullscreen-image"
+            onClick={(e) => e.stopPropagation()}
+          />
+          <button type="button" className="fullscreen-close" onClick={() => setFullscreenImageSrc(null)}>Close</button>
+        </div>
+      ) : null}
+      </main>
+
+      {showLoadingScreen ? (
+        <div
+          id="loading-screen"
+          className={`${loadingScreenShown ? "is-visible" : ""} ${loadingScreenHidden ? "hidden" : ""}`.trim()}
+          role="status"
+          aria-live="polite"
+          aria-busy={loading ? "true" : "false"}
+          aria-hidden={loadingScreenHidden ? "true" : "false"}
+        >
+          <div className="loading-content">
+            <div className="loading-title">AI Open Image</div>
+            <div id="loading-status">{loadingStatusText}</div>
+          </div>
+          <div className="loading-footer">
+            <div className="loading-oss-thanks">Built with open source tools</div>
+            <div className="loading-oss-powered">Electron · React · Vite · OpenRouter · Ollama</div>
+          </div>
+        </div>
+      ) : null}
+    </>
   );
 };
 

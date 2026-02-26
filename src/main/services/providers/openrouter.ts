@@ -69,13 +69,32 @@ const formatBytes = (bytes: number): string => {
 
 const buildMessages = (options: GenerationOptions): unknown[] => {
   if (options.referenceImage) {
+    const promptParts = [options.prompt.trim()];
+    if (options.editInstruction?.trim()) {
+      promptParts.push(`Edit instruction: ${options.editInstruction.trim()}`);
+    }
+    if (options.negativePrompt?.trim()) {
+      promptParts.push(`Negative: ${options.negativePrompt.trim()}`);
+    }
+    if (options.maskImage && options.editMode === "mask-edit") {
+      promptParts.push(
+        "Use the second image as a mask guide. White indicates areas to change, black indicates areas to preserve."
+      );
+    }
+
+    const content: Array<{ type: "text" | "image_url"; text?: string; image_url?: { url: string } }> = [
+      { type: "text", text: promptParts.join("\n\n") },
+      { type: "image_url", image_url: { url: options.referenceImage } }
+    ];
+
+    if (options.maskImage && options.editMode === "mask-edit") {
+      content.push({ type: "image_url", image_url: { url: options.maskImage } });
+    }
+
     return [
       {
         role: "user",
-        content: [
-          { type: "text", text: options.prompt },
-          { type: "image_url", image_url: { url: options.referenceImage } }
-        ]
+        content
       }
     ];
   }
@@ -238,6 +257,12 @@ export const generateImage = async (
     imageSize: options.imageSize,
     seed: options.seed,
     img2imgMode: Boolean(options.referenceImage),
+    editMode: options.editMode,
+    parentImageId: options.parentImageId,
+    editRunId: options.editRunId,
+    editInstruction: options.editInstruction,
+    maskPath: options.maskPath,
+    sourceImagePath: options.sourceImagePath,
     metadata: {
       width: dimensions.width ?? 0,
       height: dimensions.height ?? 0,
