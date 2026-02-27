@@ -184,7 +184,7 @@ const App = (): JSX.Element => {
   const [fullscreenImageSrc, setFullscreenImageSrc] = useState<string | null>(null);
   const [appInfo, setAppInfo] = useState<AppInfo>({
     name: "AI Open Image",
-    version: "0.2.2",
+    version: "0.2.3",
     releaseDate: "Local Build",
     platform: "win32"
   });

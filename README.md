@@ -1,10 +1,14 @@
 # AI Open Image
 
-AI Open Image is a desktop image generation and editing studio built with Electron, React, and TypeScript.
+AI Open Image is a FREE desktop image generation and editing studio built with Electron, React, and TypeScript.
 
 It is designed for fast iteration across multiple models, non-destructive edit workflows, and local-first gallery management.
 
-Homepage: <https://github.com/aporb/openrouter-image-gen>
+# Acknowledgement
+
+Before we go any further I would like to acknowledge Openrouter Image Gen, another project on GitHub which served as the basis for this project. Definitely check out their work and support the open source community!
+
+<https://github.com/aporb/openrouter-image-gen>
 
 ## What It Does
 
@@ -44,6 +48,11 @@ Homepage: <https://github.com/aporb/openrouter-image-gen>
 
 ## Requirements
 
+For Releases:
+Windows 11
+
+To Build:
+
 - Node.js 20+
 - npm 10+
 - Windows (primary target in current release tooling)
@@ -53,36 +62,6 @@ Optional (backend dependent):
 - OpenRouter API key (for OpenRouter backend)
 - Ollama installation + running server (for Ollama backend)
 
-## Quick Start
-
-```bash
-npm install
-npm run dev
-```
-
-Then in app:
-
-1. Open **Settings** (`Ctrl+,`)
-2. Choose backend (`OpenRouter` or `Ollama`)
-3. Configure credentials/URL
-4. Save settings and generate
-
-## Build
-
-```bash
-npm run build
-```
-
-Outputs:
-
-- Renderer: `dist/`
-- Electron: `dist-electron/`
-
-Windows installer build:
-
-```bash
-npm run release:win
-```
 
 ## User Documentation
 
