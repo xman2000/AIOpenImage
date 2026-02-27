@@ -100,10 +100,6 @@ export const clearGallery = async (userDataPath: string): Promise<void> => {
   await fs.writeFile(galleryPath(userDataPath), "[]", "utf8");
 };
 
-export const saveApiKey = async (userDataPath: string, apiKey: string): Promise<void> => {
-  await saveSettings(userDataPath, { apiKey });
-};
-
 export const saveThemePreference = async (userDataPath: string, themePreference: ThemePreference): Promise<void> => {
   await saveSettings(userDataPath, { themePreference });
 };

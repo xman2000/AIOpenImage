@@ -128,6 +128,45 @@ const createEditRunId = (): string => {
   return `run_${Date.now().toString(36)}_${random}`;
 };
 
+const deriveStatusHelp = (args: {
+  message: string;
+  tone: "idle" | "info" | "success" | "error";
+  backend: ImageBackend;
+  requiresApiKey: boolean;
+  hasApiKey: boolean;
+}): string[] => {
+  if (args.tone !== "error") {
+    return [];
+  }
+
+  const text = args.message.toLowerCase();
+  const help = new Set<string>();
+
+  if (args.requiresApiKey && !args.hasApiKey) {
+    help.add("Open Settings and add your OpenRouter API key.");
+  }
+  if (text.includes("401") || text.includes("unauthorized") || text.includes("api key")) {
+    help.add("Verify your API key is valid and active for the selected backend.");
+  }
+  if (text.includes("402") || text.includes("billing") || text.includes("credits")) {
+    help.add("Check account credits or billing status, then retry.");
+  }
+  if (text.includes("429") || text.includes("rate limit")) {
+    help.add("Wait 10-30 seconds before retrying the same request.");
+  }
+  if (text.includes("timeout") || text.includes("network") || text.includes("enotfound") || text.includes("econnrefused")) {
+    help.add("Check internet connectivity, firewall/proxy rules, and backend URL settings.");
+  }
+  if (args.backend === "ollama" && (text.includes("/v1/images/generations") || text.includes("404"))) {
+    help.add("Update Ollama or use a model/build that supports image generation endpoint compatibility.");
+  }
+  if (text.includes("no models") || text.includes("no image payload") || text.includes("no image returned")) {
+    help.add("Try another model and confirm that it supports image output.");
+  }
+
+  return Array.from(help);
+};
+
 const App = (): JSX.Element => {
   const [loading, setLoading] = useState(true);
   const [loadingStatusText, setLoadingStatusText] = useState("Starting up...");
@@ -140,11 +179,12 @@ const App = (): JSX.Element => {
   const [statusTone, setStatusTone] = useState<"idle" | "info" | "success" | "error">("idle");
   const [isSettingsOpen, setIsSettingsOpen] = useState(false);
   const [isAboutOpen, setIsAboutOpen] = useState(false);
+  const [isUserGuideOpen, setIsUserGuideOpen] = useState(false);
   const [activeImage, setActiveImage] = useState<GalleryItem | null>(null);
   const [fullscreenImageSrc, setFullscreenImageSrc] = useState<string | null>(null);
   const [appInfo, setAppInfo] = useState<AppInfo>({
     name: "AI Open Image",
-    version: "0.2.0",
+    version: "0.2.2",
     releaseDate: "Local Build",
     platform: "win32"
   });
@@ -182,6 +222,7 @@ const App = (): JSX.Element => {
   const [editSourceImage, setEditSourceImage] = useState<GalleryItem | null>(null);
   const [editRunId, setEditRunId] = useState<string | undefined>(undefined);
   const [latestEditResultSrc, setLatestEditResultSrc] = useState<string | null>(null);
+  const [latestEditResultPath, setLatestEditResultPath] = useState<string | null>(null);
   const [compareValue, setCompareValue] = useState(50);
   const [isCompareMode, setIsCompareMode] = useState(false);
   const [editSourceAspectRatio, setEditSourceAspectRatio] = useState(1);
@@ -231,6 +272,17 @@ const App = (): JSX.Element => {
   }, [selectedModels, batchMode, batchCount]);
 
   const requiresApiKey = backendInput === "openrouter";
+  const statusHelp = useMemo(
+    () =>
+      deriveStatusHelp({
+        message: status,
+        tone: statusTone,
+        backend: backendInput,
+        requiresApiKey,
+        hasApiKey: Boolean(appData.settings.apiKey)
+      }),
+    [status, statusTone, backendInput, requiresApiKey, appData.settings.apiKey]
+  );
 
   useEffect(() => {
     const boot = async (): Promise<void> => {
@@ -254,6 +306,11 @@ const App = (): JSX.Element => {
         setModels(loadedModels);
         if (loadedModels.length > 0) {
           setSelectedModelIds([loadedModels[0].model_id]);
+        } else {
+          setStatusTone("info");
+          setStatus(
+            `No models available for ${loadedData.settings.imageBackend}. Check your backend settings and try again.`
+          );
         }
       } catch (error) {
         setStatusTone("error");
@@ -331,8 +388,14 @@ const App = (): JSX.Element => {
 
   const onExportZip = async (): Promise<void> => {
     const result = await window.appApi.exportGalleryZip();
-    setStatusTone(result.ok ? "success" : "error");
-    setStatus(result.ok ? `ZIP exported: ${result.path}` : `ZIP export failed: ${result.error}`);
+    setStatusTone(result.ok ? (result.warning ? "info" : "success") : "error");
+    setStatus(
+      result.ok
+        ? result.warning
+          ? `ZIP exported: ${result.path}. ${result.warning}`
+          : `ZIP exported: ${result.path}`
+        : `ZIP export failed: ${result.error}`
+    );
   };
 
   const onClearGallery = async (): Promise<void> => {
@@ -345,6 +408,7 @@ const App = (): JSX.Element => {
   useEffect(() => {
     const unsubOpenSettings = window.appApi.onOpenSettings(() => setIsSettingsOpen(true));
     const unsubOpenAbout = window.appApi.onOpenAbout(() => setIsAboutOpen(true));
+    const unsubOpenUserGuide = window.appApi.onOpenUserGuide(() => setIsUserGuideOpen(true));
     const unsubTheme = window.appApi.onThemeMenuChange((theme) => {
       setThemeInput(theme);
       setAppData((prev) => ({ ...prev, settings: { ...prev.settings, themePreference: theme } }));
@@ -363,6 +427,7 @@ const App = (): JSX.Element => {
     return () => {
       unsubOpenSettings();
       unsubOpenAbout();
+      unsubOpenUserGuide();
       unsubTheme();
       unsubExport();
       unsubClear();
@@ -425,8 +490,15 @@ const App = (): JSX.Element => {
     const nextModels = await window.appApi.listModels();
     setModels(nextModels);
     setSelectedModelIds(nextModels.length > 0 ? [nextModels[0].model_id] : []);
-    setStatusTone("success");
-    setStatus(`Settings saved. Backend: ${next.settings.imageBackend}.`);
+    if (nextModels.length === 0) {
+      setStatusTone("error");
+      setStatus(
+        `Settings saved, but no models were found for ${next.settings.imageBackend}. Verify connectivity and backend configuration.`
+      );
+    } else {
+      setStatusTone("success");
+      setStatus(`Settings saved. Backend: ${next.settings.imageBackend}.`);
+    }
     setIsSettingsOpen(false);
   };
 
@@ -735,6 +807,7 @@ const App = (): JSX.Element => {
     setEditSourceAspectRatio(Math.max(1, width) / Math.max(1, height));
     setPrompt("");
     setLatestEditResultSrc(null);
+    setLatestEditResultPath(null);
     setCompareValue(50);
     setIsCompareMode(false);
     setMaskDataUrl(undefined);
@@ -756,6 +829,7 @@ const App = (): JSX.Element => {
     setMaskPath(undefined);
     setMaskDirty(false);
     setLatestEditResultSrc(null);
+    setLatestEditResultPath(null);
     setCompareValue(50);
     setIsCompareMode(false);
     setEditSourceAspectRatio(1);
@@ -766,6 +840,51 @@ const App = (): JSX.Element => {
     clearMask();
     setStatusTone("info");
     setStatus("Exited edit mode.");
+  };
+
+  const onUseResultAsSource = async (): Promise<void> => {
+    if (!latestEditResultPath) {
+      return;
+    }
+
+    const resultItem = appData.gallery.find((g) => g.path === latestEditResultPath);
+    if (!resultItem) {
+      setStatusTone("error");
+      setStatus("Could not find result image in gallery. Try refreshing.");
+      return;
+    }
+
+    setBusy(true);
+    setStatusTone("info");
+    setStatus("Switching source to edit result...");
+
+    const loaded = await window.appApi.loadImageAsDataUrl(resultItem.path);
+    if (!loaded.ok || !loaded.dataUrl) {
+      setStatusTone("error");
+      setStatus(`Failed to load result image: ${loaded.error ?? "Unknown error"}`);
+      setBusy(false);
+      return;
+    }
+
+    setEditSourceImage(resultItem);
+    setReferenceImage(loaded.dataUrl);
+    setReferencePreview(imageSrc(resultItem.path));
+    const width = resultItem.metadata?.width ?? 1024;
+    const height = resultItem.metadata?.height ?? 1024;
+    setEditSourceAspectRatio(Math.max(1, width) / Math.max(1, height));
+    setPrompt("");
+    setLatestEditResultSrc(null);
+    setLatestEditResultPath(null);
+    setCompareValue(50);
+    setIsCompareMode(false);
+    clearMask();
+    setMaskDataUrl(undefined);
+    setMaskPath(undefined);
+    setMaskDirty(false);
+
+    setBusy(false);
+    setStatusTone("success");
+    setStatus(`Now editing: ${resultItem.filename}`);
   };
 
   const onGenerate = async (): Promise<void> => {
@@ -880,6 +999,7 @@ const App = (): JSX.Element => {
       setModelWarnings(warnings);
       if (isEditMode && latestProducedPath) {
         setLatestEditResultSrc(imageSrc(latestProducedPath));
+        setLatestEditResultPath(latestProducedPath);
         setIsCompareMode(true);
       }
 
@@ -991,6 +1111,7 @@ const App = (): JSX.Element => {
     {
       label: "Help",
       items: [
+        { label: "User Guide", accelerator: "F1", action: () => setIsUserGuideOpen(true) },
         { label: "OpenRouter Keys", action: () => void window.appApi.menuOpenExternal("https://openrouter.ai/keys") },
         { label: "About", action: () => setIsAboutOpen(true) }
       ]
@@ -1127,13 +1248,13 @@ const App = (): JSX.Element => {
               placeholder="Negative Prompt - This tells the model what to avoid. Think of it as guardrails for your image."
             />
 
-            <div className={`generate-wrap${busy || !prompt || (requiresApiKey && !appData.settings.apiKey) || selectedModelIds.length === 0 || (isEditMode && !referenceImage) ? " generate-wrap-disabled" : ""}`}>
+            <div className={`generate-wrap${busy || !prompt.trim() || (requiresApiKey && !appData.settings.apiKey) || selectedModelIds.length === 0 || (isEditMode && !referenceImage) ? " generate-wrap-disabled" : ""}`}>
               <button
                 type="button"
                 className="generate"
                 disabled={
                   busy ||
-                  !prompt ||
+                  !prompt.trim() ||
                   (requiresApiKey && !appData.settings.apiKey) ||
                   selectedModelIds.length === 0 ||
                   (isEditMode && !referenceImage)
@@ -1275,6 +1396,13 @@ const App = (): JSX.Element => {
           </details>
 
           <p className={`status ${statusTone}`}>{status}</p>
+          {statusHelp.length ? (
+            <div className="status-help" role="note" aria-label="How to fix this">
+              {statusHelp.map((item) => (
+                <small key={item}>{item}</small>
+              ))}
+            </div>
+          ) : null}
           {modelWarnings.length ? (
             <div className="warning-list">
               {modelWarnings.map((warning, index) => (
@@ -1311,28 +1439,22 @@ const App = (): JSX.Element => {
                     onClick={() => setActiveImage(item)}
                   />
                   <div className="card-body">
-                    <strong>{item.modelName}</strong>
-                    <small>{new Date(item.timestamp).toLocaleString()}</small>
-                    <small>{item.metadata?.dimensions ?? "Unknown Dimensions"}</small>
-                    <small>{item.metadata?.sizeFormatted ?? "Unknown Size"}</small>
-                    <small>Cost: ${(item.cost ?? 0).toFixed(6)}</small>
-                    <small>Seed: {typeof item.seed === "number" ? item.seed : "None"}</small>
-                    {item.batchMode ? <small>Variation {item.batchIndex}</small> : null}
-                    {item.img2imgMode ? <small>Image-to-Image</small> : null}
-                    <details>
-                      <summary>Prompt</summary>
-                      <p>{item.prompt}</p>
-                    </details>
+                    <strong className="card-title">{item.modelName}</strong>
+                    <div className="card-meta">
+                      <small>{new Date(item.timestamp).toLocaleString()}</small>
+                      <small>{item.metadata?.dimensions ?? ""}</small>
+                    </div>
                     <div className="tag-row">
                       {item.editMode && item.editMode !== "generate" ? (
                         <small className="tag">{item.editMode === "mask-edit" ? "Mask Edit" : "Edited"}</small>
                       ) : null}
-                      {item.editRunId ? <small className="tag">Run {item.editRunId.slice(0, 8)}</small> : null}
-                      {item.parentImageId ? <small className="tag">From {item.parentImageId.slice(0, 8)}</small> : null}
+                      {item.img2imgMode ? <small className="tag">Img2Img</small> : null}
                     </div>
-                    <button type="button" className="ghost" onClick={() => void onStartEdit(item)}>Edit</button>
-                    <button type="button" className="ghost" onClick={() => onReuseImageSettings(item)}>Use Settings</button>
-                    <button type="button" onClick={() => onSaveImageAs(item)}>Save As...</button>
+                    <div className="card-actions">
+                      <button type="button" className="ghost" onClick={() => void onStartEdit(item)}>Edit</button>
+                      <button type="button" className="ghost" onClick={() => onReuseImageSettings(item)}>Reuse</button>
+                      <button type="button" onClick={() => onSaveImageAs(item)}>Save</button>
+                    </div>
                   </div>
                 </article>
               ))}
@@ -1437,6 +1559,69 @@ const App = (): JSX.Element => {
             <footer className="modal-footer">
               <button type="button" className="ghost" onClick={() => setIsAboutOpen(false)}>Close</button>
             </footer>
+          </div>
+        </div>
+      ) : null}
+
+      {isUserGuideOpen ? (
+        <div className="modal-backdrop" role="dialog" aria-modal="true" aria-label="User Guide" onClick={() => setIsUserGuideOpen(false)}>
+          <div className="modal docs-modal" onClick={(e) => e.stopPropagation()}>
+            <header className="modal-header">
+              <h3>User Guide</h3>
+              <button type="button" className="ghost" onClick={() => setIsUserGuideOpen(false)}>Close</button>
+            </header>
+            <div className="modal-body docs-body">
+              <section>
+                <h4>Quick Start</h4>
+                <ol>
+                  <li>Open <strong>Settings</strong> and choose your backend (OpenRouter or Ollama).</li>
+                  <li>For OpenRouter, add your API key and save.</li>
+                  <li>Select one or more models, write a prompt, and click <strong>Let's Go!</strong>.</li>
+                  <li>Click any gallery image to view details, or use the card buttons to edit, reuse settings, or save.</li>
+                </ol>
+              </section>
+
+              <section>
+                <h4>Edit Studio</h4>
+                <ul>
+                  <li>Click <strong>Edit</strong> on any gallery image to open Edit Studio.</li>
+                  <li>Draw a mask with Brush (<code>B</code>), Eraser (<code>E</code>), or Rectangle (<code>R</code>). Adjust size with the slider.</li>
+                  <li>Write an edit instruction and click <strong>Edit</strong> to generate.</li>
+                  <li>Use <strong>Compare</strong> to drag-compare the original and result side by side.</li>
+                  <li>Click <strong>Use Result as New Source</strong> to continue editing the output.</li>
+                </ul>
+              </section>
+
+              <section>
+                <h4>Keyboard Shortcuts</h4>
+                <ul>
+                  <li><code>Ctrl+,</code> &mdash; Settings</li>
+                  <li><code>F1</code> &mdash; This help guide</li>
+                  <li><code>B</code> / <code>E</code> / <code>R</code> &mdash; Brush / Eraser / Rectangle (in Edit Studio)</li>
+                </ul>
+              </section>
+
+              <section>
+                <h4>Troubleshooting</h4>
+                <ul>
+                  <li>Auth errors &mdash; re-check your API key or backend URL in Settings.</li>
+                  <li>No models on Ollama &mdash; verify the base URL and that models are installed.</li>
+                  <li>Empty results &mdash; try a different model or a simpler prompt.</li>
+                </ul>
+              </section>
+
+              <section>
+                <h4>Full Documentation</h4>
+                <p>The complete guide is available in <code>docs/USER_GUIDE.md</code> and on GitHub.</p>
+                <button
+                  type="button"
+                  className="ghost"
+                  onClick={() => void window.appApi.menuOpenExternal("https://github.com/aporb/openrouter-image-gen/blob/main/docs/USER_GUIDE.md")}
+                >
+                  Open Full User Guide
+                </button>
+              </section>
+            </div>
           </div>
         </div>
       ) : null}
@@ -1596,16 +1781,27 @@ const App = (): JSX.Element => {
                   </div>
                 ) : null}
 
-                <div className={`generate-wrap${busy || !prompt || selectedModelIds.length === 0 || !referenceImage ? " generate-wrap-disabled" : ""}`}>
+                <div className={`generate-wrap${busy || !prompt.trim() || selectedModelIds.length === 0 || !referenceImage ? " generate-wrap-disabled" : ""}`}>
                   <button
                     type="button"
                     className="generate"
-                    disabled={busy || !prompt || selectedModelIds.length === 0 || !referenceImage}
+                    disabled={busy || !prompt.trim() || selectedModelIds.length === 0 || !referenceImage}
                     onClick={onGenerate}
                   >
                     {busy ? "Editing..." : "Edit"}
                   </button>
                 </div>
+
+                {latestEditResultPath ? (
+                  <button
+                    type="button"
+                    className="ghost use-as-source"
+                    disabled={busy}
+                    onClick={() => void onUseResultAsSource()}
+                  >
+                    Use Result as New Source
+                  </button>
+                ) : null}
               </aside>
             </div>
           </div>

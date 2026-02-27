@@ -45,6 +45,38 @@ type OllamaTagsResponse = {
   models?: Array<{ name?: string; model?: string }>; 
 };
 
+const buildOllamaNetworkError = (error: unknown): string => {
+  const raw = String(error);
+  const detail = raw.toLowerCase();
+  if (detail.includes("ollama request failed") || detail.includes("ollama image endpoint") || detail.includes("unable to list ollama models")) {
+    return raw;
+  }
+  if (detail.includes("enotfound") || detail.includes("getaddrinfo")) {
+    return "Could not resolve Ollama host. Check the configured base URL.";
+  }
+  if (detail.includes("econnrefused")) {
+    return "Could not connect to Ollama. Ensure Ollama is running and reachable at the configured URL.";
+  }
+  if (detail.includes("etimedout") || detail.includes("timeout")) {
+    return "Connection to Ollama timed out. Check network connectivity and Ollama responsiveness.";
+  }
+  return `Failed to reach Ollama: ${raw}`;
+};
+
+const buildOllamaHttpError = (status: number, message: string): string => {
+  const trimmed = message.trim();
+  if (status === 404) {
+    return `Ollama image endpoint was not found (404). Ensure your Ollama version supports /v1/images/generations. ${trimmed}`.trim();
+  }
+  if (status === 400) {
+    return `Ollama rejected the request (400). Model or parameters may be unsupported. ${trimmed}`.trim();
+  }
+  if (status >= 500) {
+    return `Ollama returned a server error (HTTP ${status}). Retry after checking Ollama logs. ${trimmed}`.trim();
+  }
+  return `Ollama request failed (HTTP ${status}). ${trimmed}`.trim();
+};
+
 export const listOllamaModels = async (baseUrl: string): Promise<ModelInfo[]> => {
   try {
     const response = await fetch(`${baseUrl}/v1/models`);
@@ -76,28 +108,32 @@ export const listOllamaModels = async (baseUrl: string): Promise<ModelInfo[]> =>
     // continue to /api/tags fallback
   }
 
-  const fallback = await fetch(`${baseUrl}/api/tags`);
-  if (!fallback.ok) {
-    throw new Error(`Unable to list Ollama models: HTTP ${fallback.status}`);
+  try {
+    const fallback = await fetch(`${baseUrl}/api/tags`);
+    if (!fallback.ok) {
+      throw new Error(buildOllamaHttpError(fallback.status, `Unable to list Ollama models from ${baseUrl}/api/tags.`));
+    }
+    const tags = (await fallback.json()) as OllamaTagsResponse;
+    return (tags.models ?? [])
+      .map((m) => String(m.model ?? m.name ?? "").trim())
+      .filter(Boolean)
+      .sort((a, b) => a.localeCompare(b))
+      .map(
+        (id) =>
+          ({
+            model_id: id,
+            name: id,
+            description: "Local Ollama model",
+            best_for: ["local generation"],
+            cost_estimate: "$0.0000 per image (local)",
+            prompt_tips: ["Ensure model supports /v1/images/generations."],
+            input_modalities: ["text"],
+            output_modalities: ["image"]
+          }) satisfies ModelInfo
+      );
+  } catch (error) {
+    throw new Error(buildOllamaNetworkError(error));
   }
-  const tags = (await fallback.json()) as OllamaTagsResponse;
-  return (tags.models ?? [])
-    .map((m) => String(m.model ?? m.name ?? "").trim())
-    .filter(Boolean)
-    .sort((a, b) => a.localeCompare(b))
-    .map(
-      (id) =>
-        ({
-          model_id: id,
-          name: id,
-          description: "Local Ollama model",
-          best_for: ["local generation"],
-          cost_estimate: "$0.0000 per image (local)",
-          prompt_tips: ["Ensure model supports /v1/images/generations."],
-          input_modalities: ["text"],
-          output_modalities: ["image"]
-        }) satisfies ModelInfo
-    );
 };
 
 export const generateImageWithOllama = async (
@@ -130,27 +166,34 @@ export const generateImageWithOllama = async (
     response_format: "b64_json"
   };
 
-  const response = await fetch(`${baseUrl}/v1/images/generations`, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify(requestBody)
-  });
-
-  const text = await response.text();
   let data: Record<string, any> = {};
   try {
-    data = text ? (JSON.parse(text) as Record<string, any>) : {};
-  } catch {
-    data = {};
-  }
-  if (!response.ok) {
-    const message = data.error?.message ?? data.error ?? `HTTP ${response.status}`;
-    return { ok: false, error: String(message) };
+    const response = await fetch(`${baseUrl}/v1/images/generations`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(requestBody)
+    });
+
+    const text = await response.text();
+    try {
+      data = text ? (JSON.parse(text) as Record<string, any>) : {};
+    } catch {
+      data = {};
+    }
+    if (!response.ok) {
+      const message = data.error?.message ?? data.error ?? `HTTP ${response.status}`;
+      return { ok: false, error: buildOllamaHttpError(response.status, String(message)) };
+    }
+  } catch (error) {
+    return { ok: false, error: buildOllamaNetworkError(error) };
   }
 
   const b64 = data.data?.[0]?.b64_json as string | undefined;
   if (!b64) {
-    return { ok: false, error: "No image returned by Ollama." };
+    return {
+      ok: false,
+      error: "No image was returned by Ollama. Ensure the selected model supports /v1/images/generations."
+    };
   }
 
   const buffer = decodeB64(b64);

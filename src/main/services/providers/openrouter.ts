@@ -9,6 +9,41 @@ type GenerationWithKey = GenerationOptions & { apiKey: string };
 
 const BASE_URL = "https://openrouter.ai/api/v1/chat/completions";
 
+const buildNetworkError = (error: unknown): string => {
+  const raw = String(error);
+  const detail = raw.toLowerCase();
+  if (detail.includes("enotfound") || detail.includes("getaddrinfo")) {
+    return "Network error: OpenRouter host could not be resolved. Check internet or DNS settings.";
+  }
+  if (detail.includes("econnrefused")) {
+    return "Network error: Connection to OpenRouter was refused. Check firewall or proxy settings.";
+  }
+  if (detail.includes("etimedout") || detail.includes("timeout")) {
+    return "Network error: Request to OpenRouter timed out. Check connection quality and retry.";
+  }
+  return `Network error contacting OpenRouter: ${raw}`;
+};
+
+const buildHttpError = (status: number, message: string): string => {
+  const trimmed = message.trim();
+  if (status === 401) {
+    return `OpenRouter rejected the request (401 Unauthorized). Verify your API key in Settings. ${trimmed}`.trim();
+  }
+  if (status === 402) {
+    return `OpenRouter requires available credits (402). Check billing or credits. ${trimmed}`.trim();
+  }
+  if (status === 403) {
+    return `OpenRouter denied access (403 Forbidden). Check key permissions and account access. ${trimmed}`.trim();
+  }
+  if (status === 429) {
+    return `OpenRouter rate limit reached (429). Wait briefly and retry. ${trimmed}`.trim();
+  }
+  if (status >= 500) {
+    return `OpenRouter service error (HTTP ${status}). Retry shortly. ${trimmed}`.trim();
+  }
+  return `OpenRouter request failed (HTTP ${status}). ${trimmed}`.trim();
+};
+
 const extensionFromMime = (mime: string): string => {
   if (mime.includes("jpeg") || mime.includes("jpg")) {
     return "jpg";
@@ -208,22 +243,25 @@ export const generateImage = async (
 
       if (!response.ok) {
         const message = parsed.error?.message ?? `HTTP ${response.status}`;
-        return { ok: false, error: message };
+        return { ok: false, error: buildHttpError(response.status, String(message)) };
       }
       data = parsed;
       break;
     }
   } catch (error) {
-    return { ok: false, error: `Network error: ${String(error)}` };
+    return { ok: false, error: buildNetworkError(error) };
   }
 
   if (!data) {
-    return { ok: false, error: "Max retries exceeded" };
+    return { ok: false, error: "OpenRouter rate limit persisted after retries. Try again in a moment." };
   }
 
   const url = data.choices?.[0]?.message?.images?.[0]?.image_url?.url as string | undefined;
   if (!url) {
-    return { ok: false, error: "No image found in API response" };
+    return {
+      ok: false,
+      error: "No image payload was returned by OpenRouter. The selected model may not support image output."
+    };
   }
 
   const decoded = await decodeImagePayload(url);

@@ -1,31 +1,71 @@
 # AI Open Image
 
-Desktop image generator built with Electron + React + TypeScript, supporting OpenRouter and Ollama backends.
+AI Open Image is a desktop image generation and editing studio built with Electron, React, and TypeScript.
 
-## Features
+It is designed for fast iteration across multiple models, non-destructive edit workflows, and local-first gallery management.
 
-- Text-to-image with model, aspect ratio, negative prompt, image size, and seed controls
-- Image-to-image using a reference image data URL
-- Batch generation (2-4 variants)
-- Prompt history and saved prompts persisted locally
-- Gallery with metadata (dimensions, size, format, cost estimate, seed)
-- Save individual images and export full gallery ZIP with metadata
+Homepage: <https://github.com/aporb/openrouter-image-gen>
 
-## Setup
+## What It Does
 
-1. Install dependencies:
+- Generate images from prompts using OpenRouter or Ollama backends
+- Run multiple models in one request for direct output comparison
+- Use image-to-image and iterative prompt edits
+- Edit existing images non-destructively in Edit Studio
+- Apply mask-guided edits with brush/eraser/rectangle tools
+- Compare before/after in a single draggable split-view frame
+- Track cost, metadata, and edit lineage in the gallery
+- Export all gallery images to ZIP with metadata summary
+
+## Key Features
+
+- **Multi-model generation**: select multiple models and generate in one run
+- **Batch mode**: create 2-4 variants per model
+- **Advanced controls**: aspect ratio, image size, style preset, negative prompt, seed
+- **Image-to-image**: reference-image based generation
+- **Edit Studio**:
+  - non-destructive image edits
+  - mask focus with brush, eraser, rectangle tools
+  - compare mode with draggable old/new divider
+- **Gallery management**:
+  - searchable visual history
+  - save individual images
+  - export ZIP archive with metadata
+- **Theming**: system/light/dark + multiple color themes
+
+## Architecture
+
+- **Electron main**: app window, native menu, IPC, file system integration
+- **Renderer (React)**: generation UI, gallery, settings, edit studio
+- **Providers**:
+  - OpenRouter provider for hosted model generation/edit flows
+  - Ollama provider for local model workflows
+- **Knowledge layer**: YAML model catalog and capability metadata
+
+## Requirements
+
+- Node.js 20+
+- npm 10+
+- Windows (primary target in current release tooling)
+
+Optional (backend dependent):
+
+- OpenRouter API key (for OpenRouter backend)
+- Ollama installation + running server (for Ollama backend)
+
+## Quick Start
 
 ```bash
 npm install
-```
-
-2. Start the app:
-
-```bash
 npm run dev
 ```
 
-3. In the app, paste your OpenRouter key (`sk-or-...`) and click **Save API Key**.
+Then in app:
+
+1. Open **Settings** (`Ctrl+,`)
+2. Choose backend (`OpenRouter` or `Ollama`)
+3. Configure credentials/URL
+4. Save settings and generate
 
 ## Build
 
@@ -33,24 +73,35 @@ npm run dev
 npm run build
 ```
 
-Renderer output: `dist/`
+Outputs:
 
-Electron output: `dist-electron/`
+- Renderer: `dist/`
+- Electron: `dist-electron/`
 
-## Alternative Backend: Ollama
+Windows installer build:
 
-You can use Ollama as an alternative image backend. See `docs/OLLAMA_ALTERNATIVE.md` for setup and integration details.
+```bash
+npm run release:win
+```
 
-Quick note:
-- Open **Settings** in the app and switch **Image Backend** to `Ollama`.
-- Set **Ollama Base URL** (default: `http://localhost:11434`).
-- OpenRouter remains the default backend.
-- Ollama image generation uses an OpenAI-compatible **experimental** endpoint (`/v1/images/generations`).
+## User Documentation
 
-## Storage
+- Full user guide: `docs/USER_GUIDE.md`
+- Ollama setup notes: `docs/OLLAMA_ALTERNATIVE.md`
 
-App data lives under Electron `userData`:
+In the app, open **Help > User Guide** (or press `F1`) to access onboarding and usage help.
+
+## Data Storage
+
+App data is stored in Electron `userData`:
 
 - `data/gallery_index.json`
 - `data/settings.json`
 - `output/` generated images
+- `output/masks/` saved edit masks
+
+## Notes
+
+- OpenRouter remains the default backend.
+- Ollama compatibility varies by local model and endpoint support.
+- Keep API keys local and out of source control.

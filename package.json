@@ -1,8 +1,13 @@
 {
   "name": "ai-open-image",
-  "version": "0.2.0",
+  "version": "0.2.2",
   "private": true,
   "description": "AI Open Image desktop generator",
+  "author": {
+    "name": "AI Open Image",
+    "email": "release@aiopenimage.local"
+  },
+  "homepage": "https://github.com/aporb/openrouter-image-gen",
   "main": "dist-electron/electron/main.js",
   "scripts": {
     "dev": "concurrently -k \"npm:dev:renderer\" \"npm:dev:electron\"",
@@ -11,6 +16,7 @@
     "build": "npm run build:renderer && npm run build:electron",
     "build:renderer": "vite build",
     "build:electron": "tsc -p tsconfig.electron.json",
+    "release:win": "npm run build && electron-builder --win nsis --x64 -c.win.signAndEditExecutable=false",
     "preview": "vite preview"
   },
   "dependencies": {
@@ -28,8 +34,44 @@
     "@vitejs/plugin-react": "^4.3.4",
     "concurrently": "^9.1.2",
     "electron": "^35.0.0",
+    "electron-builder": "^26.8.1",
     "typescript": "^5.8.2",
     "vite": "^6.2.2",
     "wait-on": "^8.0.2"
+  },
+  "build": {
+    "appId": "com.aiopenimage.app",
+    "productName": "AI Open Image",
+    "copyright": "Copyright (c) 2026 AI Open Image",
+    "directories": {
+      "output": "release-installer",
+      "buildResources": "build"
+    },
+    "files": [
+      "dist/**/*",
+      "dist-electron/**/*",
+      "package.json"
+    ],
+    "win": {
+      "target": [
+        {
+          "target": "nsis",
+          "arch": [
+            "x64"
+          ]
+        }
+      ],
+      "artifactName": "${productName}-Setup-${version}.${ext}",
+      "signAndEditExecutable": false,
+      "icon": "build/icon.ico",
+      "legalTrademarks": "AI Open Image"
+    },
+    "nsis": {
+      "oneClick": false,
+      "allowToChangeInstallationDirectory": true,
+      "installerIcon": "build/icon.ico",
+      "uninstallerIcon": "build/icon.ico",
+      "installerHeaderIcon": "build/icon.ico"
+    }
   }
 }

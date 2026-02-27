@@ -21,14 +21,14 @@ const api = {
   generateBatch: (options: GenerationOptions, count: number): Promise<GenerationResult[]> =>
     ipcRenderer.invoke("image:generateBatch", options, count),
   listModels: (): Promise<ModelInfo[]> => ipcRenderer.invoke("knowledge:listModels"),
-  exportGalleryZip: (): Promise<{ ok: boolean; path?: string; error?: string }> => ipcRenderer.invoke("gallery:exportZip"),
+  exportGalleryZip: (): Promise<{ ok: boolean; path?: string; error?: string; warning?: string }> =>
+    ipcRenderer.invoke("gallery:exportZip"),
   saveImageAs: (imagePath: string): Promise<{ ok: boolean; path?: string; error?: string }> =>
     ipcRenderer.invoke("gallery:saveAs", imagePath),
   loadImageAsDataUrl: (imagePath: string): Promise<{ ok: boolean; dataUrl?: string; error?: string }> =>
     ipcRenderer.invoke("gallery:loadAsDataUrl", imagePath),
   saveMask: (maskDataUrl: string, editRunId: string): Promise<{ ok: boolean; path?: string; error?: string }> =>
     ipcRenderer.invoke("gallery:saveMask", maskDataUrl, editRunId),
-  setApiKey: (apiKey: string): Promise<AppData> => ipcRenderer.invoke("settings:setApiKey", apiKey),
   setThemePreference: (themePreference: ThemePreference): Promise<AppData> =>
     ipcRenderer.invoke("settings:setThemePreference", themePreference),
   menuReload: (): Promise<void> => ipcRenderer.invoke("menu:reload"),
@@ -55,6 +55,11 @@ const api = {
     const handler = (): void => callback();
     ipcRenderer.on("ui:open-about", handler);
     return () => ipcRenderer.removeListener("ui:open-about", handler);
+  },
+  onOpenUserGuide: (callback: () => void): Unsubscribe => {
+    const handler = (): void => callback();
+    ipcRenderer.on("ui:open-user-guide", handler);
+    return () => ipcRenderer.removeListener("ui:open-user-guide", handler);
   },
   onThemeMenuChange: (callback: (theme: ThemePreference) => void): Unsubscribe => {
     const handler = (_event: Electron.IpcRendererEvent, theme: ThemePreference): void => callback(theme);

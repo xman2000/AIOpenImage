@@ -9,7 +9,6 @@ import {
   clearGallery,
   getAppData,
   getSettings,
-  saveApiKey,
   saveGeneratedImage,
   saveSettings,
   saveThemePreference
@@ -17,6 +16,8 @@ import {
 import type { GenerationOptions, ThemePreference } from "../src/shared/types";
 
 let mainWindow: BrowserWindow | null = null;
+const DEV_SERVER_URL = "http://localhost:5173";
+const SHOULD_OPEN_DEVTOOLS = process.env.AI_OPEN_IMAGE_OPEN_DEVTOOLS === "1";
 
 const imageMimeByExtension: Record<string, string> = {
   ".png": "image/png",
@@ -218,6 +219,14 @@ const buildMenu = async (): Promise<void> => {
       label: "Help",
       submenu: [
         {
+          label: "User Guide",
+          accelerator: "F1",
+          click: () => {
+            sendToRenderer("ui:open-user-guide");
+          }
+        },
+        { type: "separator" },
+        {
           label: "OpenRouter Keys",
           click: async () => {
             await shell.openExternal("https://openrouter.ai/keys");
@@ -260,8 +269,26 @@ const createWindow = async (themePreference: ThemePreference): Promise<void> => 
 
   if (!app.isPackaged) {
     try {
-      await mainWindow.loadURL("http://127.0.0.1:5173");
-      mainWindow.webContents.openDevTools({ mode: "detach" });
+      const controller = new AbortController();
+      const timeout = setTimeout(() => controller.abort(), 1200);
+      let devServerReachable = false;
+      try {
+        const probe = await fetch(DEV_SERVER_URL, { signal: controller.signal });
+        devServerReachable = probe.ok;
+      } catch {
+        devServerReachable = false;
+      } finally {
+        clearTimeout(timeout);
+      }
+
+      if (devServerReachable) {
+        await mainWindow.loadURL(DEV_SERVER_URL);
+      } else {
+        await mainWindow.loadFile(path.join(app.getAppPath(), "dist", "index.html"));
+      }
+      if (SHOULD_OPEN_DEVTOOLS) {
+        mainWindow.webContents.openDevTools({ mode: "detach" });
+      }
       return;
     } catch {
       await mainWindow.loadFile(path.join(app.getAppPath(), "dist", "index.html"));
@@ -330,11 +357,6 @@ ipcMain.handle("gallery:clear", async () => {
   return getAppData(app.getPath("userData"));
 });
 
-ipcMain.handle("settings:setApiKey", async (_event, apiKey: string) => {
-  await saveApiKey(app.getPath("userData"), apiKey);
-  return getAppData(app.getPath("userData"));
-});
-
 ipcMain.handle("settings:setThemePreference", async (_event, themePreference: ThemePreference) => {
   await saveThemePreference(app.getPath("userData"), themePreference);
   applyNativeWindowTheme(themePreference);
@@ -395,6 +417,10 @@ ipcMain.handle("image:generateBatch", async (_event, options: GenerationOptions,
 });
 
 ipcMain.handle("gallery:saveAs", async (_event, imagePath: string) => {
+  const allowedDir = outputDir();
+  if (!isPathInside(imagePath, allowedDir)) {
+    return { ok: false, error: "Invalid image path." };
+  }
   const defaultName = path.basename(imagePath);
   const saveResult = await dialog.showSaveDialog({ defaultPath: defaultName });
   if (saveResult.canceled || !saveResult.filePath) {
@@ -441,44 +467,68 @@ ipcMain.handle("gallery:saveMask", async (_event, maskDataUrl: string, editRunId
 });
 
 ipcMain.handle("gallery:exportZip", async () => {
-  const data = await getAppData(app.getPath("userData"));
-  if (!data.gallery.length) {
-    return { ok: false, error: "Gallery is empty" };
+  try {
+    const data = await getAppData(app.getPath("userData"));
+    if (!data.gallery.length) {
+      return { ok: false, error: "Gallery is empty" };
+    }
+
+    const zip = new JSZip();
+    let addedCount = 0;
+    const missingFiles: string[] = [];
+    for (const item of data.gallery) {
+      try {
+        const buffer = await fs.readFile(item.path);
+        zip.file(item.filename, buffer);
+        addedCount += 1;
+      } catch {
+        missingFiles.push(item.filename);
+      }
+    }
+
+    if (addedCount === 0) {
+      return { ok: false, error: "No readable images found for export." };
+    }
+
+    const metadata = data.gallery
+      .map((item) => {
+        const lines = [
+          `File: ${item.filename}`,
+          `Model: ${item.modelName}`,
+          `Timestamp: ${item.timestamp}`,
+          `Cost: $${(item.cost ?? 0).toFixed(6)}`,
+          `Prompt: ${item.prompt}`,
+          ""
+        ];
+        return lines.join("\n");
+      })
+      .join("\n");
+
+    const metadataWithWarnings =
+      missingFiles.length > 0
+        ? `${metadata}\nSkipped missing files (${missingFiles.length}):\n${missingFiles.join("\n")}\n`
+        : metadata;
+
+    zip.file("metadata.txt", metadataWithWarnings);
+    const blob = await zip.generateAsync({ type: "nodebuffer" });
+
+    const saveResult = await dialog.showSaveDialog({
+      defaultPath: "generated_images.zip",
+      filters: [{ name: "ZIP Archive", extensions: ["zip"] }]
+    });
+    if (saveResult.canceled || !saveResult.filePath) {
+      return { ok: false, error: "Export cancelled" };
+    }
+
+    await fs.writeFile(saveResult.filePath, blob);
+    return {
+      ok: true,
+      path: saveResult.filePath,
+      warning: missingFiles.length > 0 ? `${missingFiles.length} file(s) were missing and skipped.` : undefined
+    };
+  } catch (error) {
+    return { ok: false, error: `ZIP export failed: ${String(error)}` };
   }
-
-  const zip = new JSZip();
-  for (const item of data.gallery) {
-    const buffer = await fs.readFile(item.path);
-    zip.file(item.filename, buffer);
-  }
-
-  const metadata = data.gallery
-    .map((item) => {
-      const lines = [
-        `File: ${item.filename}`,
-        `Model: ${item.modelName}`,
-        `Timestamp: ${item.timestamp}`,
-        `Cost: $${(item.cost ?? 0).toFixed(6)}`,
-        `Prompt: ${item.prompt}`,
-        ""
-      ];
-      return lines.join("\n");
-    })
-    .join("\n");
-
-  zip.file("metadata.txt", metadata);
-  const blob = await zip.generateAsync({ type: "nodebuffer" });
-
-  const saveResult = await dialog.showSaveDialog({
-    defaultPath: "generated_images.zip",
-    filters: [{ name: "ZIP Archive", extensions: ["zip"] }]
-  });
-  if (saveResult.canceled || !saveResult.filePath) {
-    return { ok: false, error: "Export cancelled" };
-  }
-
-  await fs.writeFile(saveResult.filePath, blob);
-  return { ok: true, path: saveResult.filePath };
 });
 
 ipcMain.handle("menu:reload", () => {
