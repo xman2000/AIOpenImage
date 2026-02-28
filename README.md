@@ -4,6 +4,8 @@ AI Open Image is a FREE desktop image generation and editing studio built with E
 
 It is designed for fast iteration across multiple models, non-destructive edit workflows, and local-first gallery management.
 
+![AI Open Image Screenshot](docs/screenshot.png)
+
 # Acknowledgement
 
 Before we go any further I would like to acknowledge Openrouter Image Gen, another project on GitHub which served as the basis for this project. Definitely check out their work and support the open source community!
@@ -24,7 +26,7 @@ Before we go any further I would like to acknowledge Openrouter Image Gen, anoth
 ## Key Features
 
 - **Multi-model generation**: select multiple models and generate in one run
-- **Batch mode**: create 2-4 variants per model
+- **Batch mode**: create 2-10 variants per model
 - **Advanced controls**: aspect ratio, image size, style preset, negative prompt, seed
 - **Image-to-image**: reference-image based generation
 - **Edit Studio**:

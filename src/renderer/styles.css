@@ -754,12 +754,19 @@ select {
 
 #loading-screen {
   position: fixed;
-  inset: 0;
+  top: 50%;
+  left: 50%;
+  width: min(420px, calc(100vw - 24px));
+  height: min(420px, calc(100vh - 60px));
+  transform: translate(-50%, -50%);
   background:
     radial-gradient(circle at 12% 18%, rgba(50, 180, 120, 0.55), rgba(3, 14, 10, 0.98)),
     radial-gradient(circle at 82% 22%, rgba(20, 120, 170, 0.35), rgba(3, 10, 18, 0.96)),
     radial-gradient(circle at 50% 85%, rgba(0, 140, 100, 0.5), rgba(3, 14, 12, 0.96)),
     linear-gradient(180deg, rgba(2, 8, 6, 0.98), rgba(4, 22, 16, 0.98));
+  border: 1px solid rgba(150, 255, 210, 0.18);
+  border-radius: 18px;
+  box-shadow: 0 18px 44px rgba(0, 0, 0, 0.42);
   overflow: hidden;
   background-size: 260% 260%;
   animation: lavaBase 12s ease-in-out infinite;
@@ -779,7 +786,7 @@ select {
 #loading-screen.hidden {
   opacity: 0;
   pointer-events: none;
-  transition: opacity 1500ms ease;
+  transition: opacity 2000ms ease;
 }
 
 #loading-screen::before {
@@ -813,9 +820,12 @@ select {
   text-align: center;
   display: flex;
   flex-direction: column;
+  align-items: center;
+  justify-content: center;
   gap: 8px;
-  width: min(560px, calc(100vw - 40px));
-  padding: 0 12px;
+  width: 100%;
+  height: 100%;
+  padding: 24px 16px 84px;
   animation: contentFadeIn 1000ms ease-out 200ms forwards;
   opacity: 0;
   transform: translateY(16px);
@@ -823,7 +833,7 @@ select {
 
 .loading-footer {
   position: absolute;
-  bottom: 28px;
+  bottom: 16px;
   left: 0;
   right: 0;
   text-align: center;
@@ -931,7 +941,6 @@ select {
   border: 1px solid var(--line);
   border-radius: 14px;
   background: var(--bg-elevated);
-  box-shadow: var(--shadow);
 }
 
 .desktop-header h1 {
@@ -960,9 +969,45 @@ select {
 
 .workspace {
   display: grid;
-  grid-template-columns: 380px 1fr;
-  gap: 12px;
+  grid-template-columns: var(--tool-panel-width, 380px) 10px 1fr;
+  gap: 0;
   min-height: 0;
+  overflow: hidden;
+}
+
+.workspace-resizing {
+  user-select: none;
+}
+
+.workspace-resizer {
+  width: 10px;
+  min-width: 10px;
+  cursor: col-resize;
+  border-radius: 8px;
+  background:
+    linear-gradient(
+      to right,
+      transparent 0,
+      transparent 4px,
+      color-mix(in srgb, var(--line) 85%, transparent) 4px,
+      color-mix(in srgb, var(--line) 85%, transparent) 6px,
+      transparent 6px,
+      transparent 100%
+    );
+}
+
+.workspace-resizer:hover,
+.workspace-resizing .workspace-resizer {
+  background:
+    linear-gradient(
+      to right,
+      transparent 0,
+      transparent 4px,
+      color-mix(in srgb, var(--accent) 65%, var(--line)) 4px,
+      color-mix(in srgb, var(--accent) 65%, var(--line)) 6px,
+      transparent 6px,
+      transparent 100%
+    );
 }
 
 .tool-panel,
@@ -970,12 +1015,14 @@ select {
   border: 1px solid var(--line);
   border-radius: 14px;
   background: var(--bg-elevated);
-  box-shadow: var(--shadow);
+  min-width: 0;
+  overflow: hidden;
 }
 
 .tool-panel {
   padding: 12px;
   overflow-y: auto;
+  overflow-x: hidden;
 }
 
 .tool-panel section {
@@ -1016,18 +1063,18 @@ textarea {
 }
 
 .prompt-glow {
-  border-color: var(--accent);
+  border-color: #39ff14;
   box-shadow:
-    0 0 0 1px var(--focus),
-    0 0 12px color-mix(in srgb, var(--accent) 30%, transparent);
+    0 0 0 1px rgba(57, 255, 20, 0.35),
+    0 0 12px rgba(57, 255, 20, 0.3);
 }
 
 .prompt-glow:focus {
   outline: none;
-  border-color: var(--accent-strong);
+  border-color: #39ff14;
   box-shadow:
-    0 0 0 2px var(--focus),
-    0 0 20px color-mix(in srgb, var(--accent) 45%, transparent);
+    0 0 0 2px rgba(57, 255, 20, 0.45),
+    0 0 20px rgba(57, 255, 20, 0.45);
 }
 
 .negative-glow {
@@ -1088,6 +1135,11 @@ textarea {
 
 .model-multiselect {
   min-height: 170px;
+  padding: 0;
+}
+
+.model-multiselect option {
+  padding: 4px 8px;
 }
 
 .advanced {
@@ -1498,6 +1550,7 @@ textarea {
 
 .toolbar-actions {
   display: flex;
+  align-items: center;
   gap: 8px;
 }
 
@@ -1505,11 +1558,30 @@ textarea {
   width: auto;
 }
 
+.thumb-size-control {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  width: auto;
+  margin: 0;
+  font-size: 12px;
+  color: var(--ink-soft);
+}
+
+.thumb-size-control input {
+  width: 90px;
+  padding: 0;
+  border: 0;
+  background: transparent;
+}
+
 .gallery-grid {
   overflow-y: auto;
   display: grid;
   gap: 10px;
-  grid-template-columns: repeat(auto-fill, minmax(140px, 1fr));
+  grid-template-columns: repeat(auto-fill, minmax(var(--thumb-size, 140px), var(--thumb-size, 140px)));
+  justify-content: start;
+  align-content: start;
 }
 
 .empty {
@@ -1906,7 +1978,7 @@ textarea {
   bottom: 24px;
   right: 24px;
   z-index: 200;
-  width: 300px;
+  width: 360px;
   background: var(--bg-elevated);
   border: 1px solid var(--line);
   border-radius: var(--radius);
@@ -1915,6 +1987,44 @@ textarea {
   display: grid;
   gap: 8px;
   animation: gen-popover-in 0.2s ease;
+}
+
+.gen-popover-toggle {
+  width: auto;
+  justify-self: start;
+  padding: 6px 10px;
+  font-size: 11px;
+}
+
+.gen-popover-list {
+  max-height: 180px;
+  overflow-y: auto;
+  display: grid;
+  gap: 6px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  padding: 8px;
+  background: var(--bg-panel);
+}
+
+.gen-popover-item {
+  display: grid;
+  gap: 2px;
+  padding: 4px 6px;
+  border-radius: 6px;
+  border: 1px solid var(--line);
+}
+
+.gen-popover-item-running {
+  border-color: color-mix(in srgb, var(--accent) 45%, var(--line));
+}
+
+.gen-popover-item-success {
+  border-color: color-mix(in srgb, var(--good) 45%, var(--line));
+}
+
+.gen-popover-item-failed {
+  border-color: color-mix(in srgb, var(--status-error-ink) 45%, var(--line));
 }
 
 @keyframes gen-popover-in {
@@ -1964,11 +2074,7 @@ textarea {
   100% { transform: translateX(250%); width: 40%; }
 }
 
-@media (max-width: 1200px) {
-  .workspace {
-    grid-template-columns: 1fr;
-  }
-
+@media (max-width: 700px) {
   .image-popover-body {
     grid-template-columns: 1fr;
   }

@@ -18,6 +18,16 @@ import type { GenerationOptions, ThemePreference } from "../src/shared/types";
 let mainWindow: BrowserWindow | null = null;
 const DEV_SERVER_URL = "http://localhost:5173";
 const SHOULD_OPEN_DEVTOOLS = process.env.AI_OPEN_IMAGE_OPEN_DEVTOOLS === "1";
+const DEFAULT_WINDOW_WIDTH = 1320;
+const DEFAULT_WINDOW_HEIGHT = 860;
+
+type WindowState = {
+  width: number;
+  height: number;
+  x?: number;
+  y?: number;
+  maximized?: boolean;
+};
 
 const imageMimeByExtension: Record<string, string> = {
   ".png": "image/png",
@@ -63,6 +73,43 @@ const sendToRenderer = (channel: string, ...args: unknown[]): void => {
 };
 
 const outputDir = (): string => path.join(app.getPath("userData"), "output");
+const windowStatePath = (): string => path.join(app.getPath("userData"), "data", "window_state.json");
+
+const ensureUserDataDirs = async (): Promise<void> => {
+  await fs.mkdir(path.join(app.getPath("userData"), "data"), { recursive: true });
+};
+
+const loadWindowState = async (): Promise<WindowState> => {
+  await ensureUserDataDirs();
+  try {
+    const raw = await fs.readFile(windowStatePath(), "utf8");
+    const parsed = JSON.parse(raw) as Partial<WindowState>;
+    const width = typeof parsed.width === "number" ? Math.max(500, Math.round(parsed.width)) : DEFAULT_WINDOW_WIDTH;
+    const height = typeof parsed.height === "number" ? Math.max(400, Math.round(parsed.height)) : DEFAULT_WINDOW_HEIGHT;
+    return {
+      width,
+      height,
+      x: typeof parsed.x === "number" ? Math.round(parsed.x) : undefined,
+      y: typeof parsed.y === "number" ? Math.round(parsed.y) : undefined,
+      maximized: Boolean(parsed.maximized)
+    };
+  } catch {
+    return { width: DEFAULT_WINDOW_WIDTH, height: DEFAULT_WINDOW_HEIGHT };
+  }
+};
+
+const saveWindowState = async (win: BrowserWindow): Promise<void> => {
+  await ensureUserDataDirs();
+  const bounds = win.getBounds();
+  const state: WindowState = {
+    width: Math.max(500, Math.round(bounds.width)),
+    height: Math.max(400, Math.round(bounds.height)),
+    x: Math.round(bounds.x),
+    y: Math.round(bounds.y),
+    maximized: win.isMaximized()
+  };
+  await fs.writeFile(windowStatePath(), JSON.stringify(state, null, 2), "utf8");
+};
 
 const isPathInside = (targetPath: string, rootPath: string): boolean => {
   const normalizedTarget = path.resolve(targetPath);
@@ -248,11 +295,14 @@ const buildMenu = async (): Promise<void> => {
 
 const createWindow = async (themePreference: ThemePreference): Promise<void> => {
   const colors = resolveThemeColors(themePreference);
+  const savedWindowState = await loadWindowState();
   mainWindow = new BrowserWindow({
-    width: 1320,
-    height: 860,
-    minWidth: 980,
-    minHeight: 700,
+    width: savedWindowState.width,
+    height: savedWindowState.height,
+    x: savedWindowState.x,
+    y: savedWindowState.y,
+    minWidth: 500,
+    minHeight: 400,
     backgroundColor: colors.bg,
     titleBarStyle: "hidden",
     titleBarOverlay: {
@@ -266,6 +316,40 @@ const createWindow = async (themePreference: ThemePreference): Promise<void> => 
       preload: path.join(__dirname, "preload.js")
     }
   });
+
+  let saveBoundsTimer: NodeJS.Timeout | null = null;
+  const queueSaveWindowState = (): void => {
+    if (!mainWindow || mainWindow.isDestroyed()) {
+      return;
+    }
+    if (saveBoundsTimer) {
+      clearTimeout(saveBoundsTimer);
+    }
+    saveBoundsTimer = setTimeout(() => {
+      if (!mainWindow || mainWindow.isDestroyed()) {
+        return;
+      }
+      void saveWindowState(mainWindow);
+    }, 200);
+  };
+
+  mainWindow.on("resize", queueSaveWindowState);
+  mainWindow.on("move", queueSaveWindowState);
+  mainWindow.on("maximize", queueSaveWindowState);
+  mainWindow.on("unmaximize", queueSaveWindowState);
+  mainWindow.on("close", () => {
+    if (saveBoundsTimer) {
+      clearTimeout(saveBoundsTimer);
+      saveBoundsTimer = null;
+    }
+    if (mainWindow && !mainWindow.isDestroyed()) {
+      void saveWindowState(mainWindow);
+    }
+  });
+
+  if (savedWindowState.maximized) {
+    mainWindow.maximize();
+  }
 
   if (!app.isPackaged) {
     try {

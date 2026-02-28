@@ -23,6 +23,13 @@ type AppInfo = {
   platform: string;
 };
 
+type RequestStatus = {
+  id: string;
+  label: string;
+  state: "queued" | "running" | "success" | "failed";
+  detail?: string;
+};
+
 const presets: StylePreset[] = [
   {
     name: "Cinematic Portrait",
@@ -72,10 +79,36 @@ const themes: { value: ThemePreference; label: string }[] = [
 ];
 
 const aspectRatios = ["1:1", "16:9", "9:16", "4:3", "3:2", "21:9", "2:3", "3:4", "4:5", "5:4"];
+const galleryThumbnailWidths = [120, 160, 210, 280] as const;
 
 const imageSrc = (absolutePath: string): string => {
   const normalized = absolutePath.replaceAll("\\", "/");
-  return encodeURI(`file:///${normalized}`);
+  return encodeURI(`file:///${normalized}`).replaceAll("#", "%23").replaceAll("?", "%3F");
+};
+
+const runWithConcurrency = async <T, R>(
+  items: T[],
+  limit: number,
+  worker: (item: T, index: number) => Promise<R>
+): Promise<R[]> => {
+  if (items.length === 0) {
+    return [];
+  }
+
+  const results = new Array<R>(items.length);
+  let nextIndex = 0;
+  const safeLimit = Math.max(1, Math.min(limit, items.length));
+
+  const runWorker = async (): Promise<void> => {
+    while (nextIndex < items.length) {
+      const current = nextIndex;
+      nextIndex += 1;
+      results[current] = await worker(items[current], current);
+    }
+  };
+
+  await Promise.all(Array.from({ length: safeLimit }, () => runWorker()));
+  return results;
 };
 
 const resolveTheme = (preference: ThemePreference): ThemePreference => {
@@ -181,10 +214,11 @@ const App = (): JSX.Element => {
   const [isAboutOpen, setIsAboutOpen] = useState(false);
   const [isUserGuideOpen, setIsUserGuideOpen] = useState(false);
   const [activeImage, setActiveImage] = useState<GalleryItem | null>(null);
+  const [galleryThumbStop, setGalleryThumbStop] = useState(1);
   const [fullscreenImageSrc, setFullscreenImageSrc] = useState<string | null>(null);
   const [appInfo, setAppInfo] = useState<AppInfo>({
     name: "AI Open Image",
-    version: "0.2.3",
+    version: "0.3.0",
     releaseDate: "Local Build",
     platform: "win32"
   });
@@ -233,6 +267,10 @@ const App = (): JSX.Element => {
   const [maskPath, setMaskPath] = useState<string | undefined>(undefined);
   const [maskDirty, setMaskDirty] = useState(false);
   const [modelWarnings, setModelWarnings] = useState<string[]>([]);
+  const [requestStatuses, setRequestStatuses] = useState<RequestStatus[]>([]);
+  const [isGenPopoverExpanded, setIsGenPopoverExpanded] = useState(false);
+  const [toolPanelWidth, setToolPanelWidth] = useState(380);
+  const [isResizingWorkspace, setIsResizingWorkspace] = useState(false);
   const [activeMenu, setActiveMenu] = useState<string | null>(null);
   const menuBarRef = useRef<HTMLDivElement | null>(null);
   const maskCanvasRef = useRef<HTMLCanvasElement | null>(null);
@@ -241,7 +279,14 @@ const App = (): JSX.Element => {
   const rectStartPointRef = useRef<{ x: number; y: number } | null>(null);
   const rectBaseImageRef = useRef<ImageData | null>(null);
   const compareDraggingRef = useRef(false);
+  const workspaceResizeRef = useRef<{ startX: number; startWidth: number } | null>(null);
   const bootStartedAtRef = useRef<number>(Date.now());
+
+  const clampToolPanelWidth = (width: number): number => {
+    const minWidth = 240;
+    const maxWidth = Math.max(minWidth, Math.min(620, window.innerWidth - 260));
+    return Math.max(minWidth, Math.min(maxWidth, Math.round(width)));
+  };
 
   const selectedModels = useMemo(
     () => models.filter((m) => selectedModelIds.includes(m.model_id)),
@@ -253,12 +298,12 @@ const App = (): JSX.Element => {
   );
   const totalExpectedCost = useMemo(() => {
     const perImageTotal = selectedModels.reduce((sum, model) => sum + parseAverageCost(model.cost_estimate), 0);
-    const count = batchMode ? Math.max(2, Math.min(4, batchCount)) : 1;
+    const count = batchMode ? Math.max(2, Math.min(10, batchCount)) : 1;
     return perImageTotal * count;
   }, [selectedModels, batchMode, batchCount]);
 
   const costBreakdown = useMemo(() => {
-    const count = batchMode ? Math.max(2, Math.min(4, batchCount)) : 1;
+    const count = batchMode ? Math.max(2, Math.min(10, batchCount)) : 1;
     return selectedModels.map((model) => {
       const unit = parseAverageCost(model.cost_estimate);
       return {
@@ -272,6 +317,14 @@ const App = (): JSX.Element => {
   }, [selectedModels, batchMode, batchCount]);
 
   const requiresApiKey = backendInput === "openrouter";
+  const galleryThumbWidth = galleryThumbnailWidths[galleryThumbStop] ?? galleryThumbnailWidths[1];
+  const requestSummary = useMemo(() => {
+    const queued = requestStatuses.filter((item) => item.state === "queued").length;
+    const running = requestStatuses.filter((item) => item.state === "running").length;
+    const success = requestStatuses.filter((item) => item.state === "success").length;
+    const failed = requestStatuses.filter((item) => item.state === "failed").length;
+    return { queued, running, success, failed, total: requestStatuses.length };
+  }, [requestStatuses]);
   const statusHelp = useMemo(
     () =>
       deriveStatusHelp({
@@ -333,8 +386,8 @@ const App = (): JSX.Element => {
     }
     setLoadingStatusText("Ready.");
     const elapsed = Date.now() - bootStartedAtRef.current;
-    const minVisibleMs = 900;
-    const transitionMs = 1500;
+    const minVisibleMs = 3200;
+    const transitionMs = 2000;
     const startDelay = Math.max(0, minVisibleMs - elapsed);
 
     const fadeTimer = window.setTimeout(() => {
@@ -362,6 +415,47 @@ const App = (): JSX.Element => {
     media.addEventListener("change", handler);
     return () => media.removeEventListener("change", handler);
   }, [appData.settings.themePreference]);
+
+  useEffect(() => {
+    const onResize = (): void => {
+      setToolPanelWidth((prev) => clampToolPanelWidth(prev));
+    };
+    window.addEventListener("resize", onResize);
+    return () => window.removeEventListener("resize", onResize);
+  }, []);
+
+  useEffect(() => {
+    const onPointerMove = (event: PointerEvent): void => {
+      if (!workspaceResizeRef.current) {
+        return;
+      }
+      const next = workspaceResizeRef.current.startWidth + (event.clientX - workspaceResizeRef.current.startX);
+      setToolPanelWidth(clampToolPanelWidth(next));
+    };
+
+    const stopResize = (): void => {
+      workspaceResizeRef.current = null;
+      setIsResizingWorkspace(false);
+    };
+
+    window.addEventListener("pointermove", onPointerMove);
+    window.addEventListener("pointerup", stopResize);
+    window.addEventListener("pointercancel", stopResize);
+    return () => {
+      window.removeEventListener("pointermove", onPointerMove);
+      window.removeEventListener("pointerup", stopResize);
+      window.removeEventListener("pointercancel", stopResize);
+    };
+  }, []);
+
+  const onWorkspaceResizeStart = (event: ReactPointerEvent<HTMLDivElement>): void => {
+    if (window.innerWidth <= 980) {
+      return;
+    }
+    workspaceResizeRef.current = { startX: event.clientX, startWidth: toolPanelWidth };
+    setIsResizingWorkspace(true);
+    event.preventDefault();
+  };
 
   useEffect(() => {
     if (!isEditMode || !editSourceImage) {
@@ -904,23 +998,35 @@ const App = (): JSX.Element => {
 
     setBusy(true);
     setModelWarnings([]);
+    setIsGenPopoverExpanded(false);
     setStatusTone("info");
     setStatus(isEditMode ? "Initializing edit run..." : "Initializing generation...");
 
     try {
-      const safeCount = batchMode ? Math.max(2, Math.min(4, batchCount)) : 1;
+      const concurrencyLimit = 3;
+      const safeCount = batchMode ? Math.max(2, Math.min(10, batchCount)) : 1;
+      const totalRequests = selectedModelIds.length * safeCount;
+      let completedRequests = 0;
+      let currentMaskPath = maskPath;
+      const warnings: string[] = [];
       let successCount = 0;
       let failedCount = 0;
-      const warnings: string[] = [];
-      let currentMaskPath = maskPath;
       let latestProducedPath: string | null = null;
 
+      setStatus(
+        `${isEditMode ? "Editing" : "Generating"} ${totalRequests} request(s) with up to ${Math.min(
+          concurrencyLimit,
+          totalRequests
+        )} in parallel...`
+      );
+
+      const runId = isEditMode ? (editRunId ?? createEditRunId()) : undefined;
+      if (isEditMode && !editRunId && runId) {
+        setEditRunId(runId);
+      }
+
       if (isEditMode && maskDataUrl && maskDirty) {
-        const runId = editRunId ?? createEditRunId();
-        if (!editRunId) {
-          setEditRunId(runId);
-        }
-        const savedMask = await window.appApi.saveMask(maskDataUrl, runId);
+        const savedMask = await window.appApi.saveMask(maskDataUrl, runId ?? createEditRunId());
         if (savedMask.ok && savedMask.path) {
           currentMaskPath = savedMask.path;
           setMaskPath(savedMask.path);
@@ -930,40 +1036,58 @@ const App = (): JSX.Element => {
         }
       }
 
-      for (const modelId of selectedModelIds) {
+      const tasks = selectedModelIds.flatMap((modelId) => {
         const model = models.find((m) => m.model_id === modelId);
         const modelName = model?.name ?? modelId;
+        return Array.from({ length: safeCount }, (_, index) => {
+          const requestNumber = index + 1;
+          return {
+            id: `${modelId}:${requestNumber}`,
+            modelId,
+            modelName,
+            requestNumber,
+            label: batchMode ? `${modelName} #${requestNumber}` : modelName
+          };
+        });
+      });
+
+      setRequestStatuses(tasks.map((task) => ({ id: task.id, label: task.label, state: "queued" as const })));
+
+      await runWithConcurrency(tasks, concurrencyLimit, async (task, taskIndex) => {
+        if (taskIndex > 0) {
+          await new Promise((resolve) => setTimeout(resolve, taskIndex * 500));
+        }
+        setRequestStatuses((prev) => prev.map((item) => (item.id === task.id ? { ...item, state: "running" } : item)));
+
+        const model = models.find((m) => m.model_id === task.modelId);
         const canImageInput = Boolean(model?.input_modalities?.includes("image"));
         const canMaskEdit = Boolean(model?.supportsMaskEdit);
         const wantsMaskEdit = isEditMode && Boolean(maskDataUrl);
         const modelMaskEnabled = wantsMaskEdit && canMaskEdit;
 
         if (isEditMode && !canImageInput) {
-          warnings.push(`${modelName}: model does not support image input, skipped.`);
-          failedCount += batchMode ? safeCount : 1;
-          continue;
+          warnings.push(`${task.modelName}: model does not support image input, skipped.`);
+          failedCount += 1;
+          completedRequests += 1;
+          setRequestStatuses((prev) =>
+            prev.map((item) => (item.id === task.id ? { ...item, state: "failed", detail: "Image input unsupported" } : item))
+          );
+          setStatus(`${isEditMode ? "Editing" : "Generating"}... ${completedRequests}/${totalRequests} complete`);
+          return;
         }
+
         if (wantsMaskEdit && !canMaskEdit) {
-          warnings.push(`${modelName}: mask edits unsupported, using full-image edit fallback.`);
-        }
-
-        setStatus(
-          `${isEditMode ? "Editing" : "Generating"} with ${modelName}${batchMode ? ` (${safeCount} images)` : ""}...`
-        );
-
-        const runId = isEditMode ? (editRunId ?? createEditRunId()) : undefined;
-        if (isEditMode && !editRunId && runId) {
-          setEditRunId(runId);
+          warnings.push(`${task.modelName}: mask edits unsupported, using full-image edit fallback.`);
         }
 
         const options: GenerationOptions = {
-          model: modelId,
+          model: task.modelId,
           prompt: prompt.trim(),
           negativePrompt: negativePrompt.trim() || undefined,
           stylePreset: presetName !== "None" ? presetName : undefined,
           aspectRatio,
-          imageSize: modelId.toLowerCase().includes("gemini") ? imageSize : undefined,
-          seed: useSeed ? seedValue : undefined,
+          imageSize: task.modelId.toLowerCase().includes("gemini") ? imageSize : undefined,
+          seed: useSeed ? seedValue + (task.requestNumber - 1) : undefined,
           referenceImage,
           maskImage: modelMaskEnabled ? maskDataUrl : undefined,
           maskPath: modelMaskEnabled ? currentMaskPath : undefined,
@@ -971,30 +1095,35 @@ const App = (): JSX.Element => {
           parentImageId: isEditMode ? editSourceImage?.id : undefined,
           editRunId: isEditMode ? runId : undefined,
           editInstruction: isEditMode ? prompt.trim() : undefined,
-          sourceImagePath: isEditMode ? editSourceImage?.path : undefined
+          sourceImagePath: isEditMode ? editSourceImage?.path : undefined,
+          batchMode,
+          batchIndex: batchMode ? task.requestNumber : undefined
         };
 
-        if (batchMode) {
-          const results = await window.appApi.generateBatch(options, safeCount);
-          const successful = results.filter((r) => r.ok);
-          successCount += successful.length;
-          failedCount += results.filter((r) => !r.ok).length;
-          const latest = successful.at(-1)?.image;
-          if (latest?.path) {
-            latestProducedPath = latest.path;
-          }
+        const result = await window.appApi.generateImage(options);
+        completedRequests += 1;
+
+        if (result.ok && result.image) {
+          const generatedImage = result.image;
+          successCount += 1;
+          latestProducedPath = generatedImage.path;
+          setRequestStatuses((prev) =>
+            prev.map((item) => (item.id === task.id ? { ...item, state: "success", detail: "Completed" } : item))
+          );
+          setAppData((prev) => ({
+            ...prev,
+            gallery: [...prev.gallery, generatedImage],
+            totalCost: prev.totalCost + (result.cost ?? 0)
+          }));
         } else {
-          const result = await window.appApi.generateImage(options);
-          if (result.ok) {
-            successCount += 1;
-            if (result.image?.path) {
-              latestProducedPath = result.image.path;
-            }
-          } else {
-            failedCount += 1;
-          }
+          failedCount += 1;
+          setRequestStatuses((prev) =>
+            prev.map((item) => (item.id === task.id ? { ...item, state: "failed", detail: result.error ?? "Failed" } : item))
+          );
         }
-      }
+
+        setStatus(`${isEditMode ? "Editing" : "Generating"}... ${completedRequests}/${totalRequests} complete`);
+      });
 
       setModelWarnings(warnings);
       if (isEditMode && latestProducedPath) {
@@ -1211,7 +1340,10 @@ const App = (): JSX.Element => {
         </div>
       ) : null}
 
-      <section className="workspace">
+      <section
+        className={`workspace${isResizingWorkspace ? " workspace-resizing" : ""}`}
+        style={{ ["--tool-panel-width" as string]: `${toolPanelWidth}px` }}
+      >
         <aside className="tool-panel">
           <section className="no-divider">
             {isEditMode && editSourceImage ? (
@@ -1316,13 +1448,11 @@ const App = (): JSX.Element => {
               </label>
             </div>
             {batchMode ? (
-              <input
-                type="number"
-                min={2}
-                max={4}
-                value={batchCount}
-                onChange={(e) => setBatchCount(Number.parseInt(e.target.value, 10) || 2)}
-              />
+              <select value={batchCount} onChange={(e) => setBatchCount(Number.parseInt(e.target.value, 10) || 2)}>
+                {Array.from({ length: 9 }, (_, index) => index + 2).map((countOption) => (
+                  <option key={countOption} value={countOption}>{countOption}</option>
+                ))}
+              </select>
             ) : null}
           </section>
 
@@ -1412,6 +1542,14 @@ const App = (): JSX.Element => {
           ) : null}
         </aside>
 
+        <div
+          className="workspace-resizer"
+          role="separator"
+          aria-orientation="vertical"
+          aria-label="Resize tool and gallery panels"
+          onPointerDown={onWorkspaceResizeStart}
+        />
+
         <section className="content-panel">
           <div className="toolbar">
             <div>
@@ -1419,12 +1557,23 @@ const App = (): JSX.Element => {
               <p className="muted">Total cost tracked: ${appData.totalCost.toFixed(6)}</p>
             </div>
             <div className="toolbar-actions">
+              <label className="thumb-size-control" title="Gallery thumbnail size">
+                <span>Thumbnail Size</span>
+                <input
+                  type="range"
+                  min={0}
+                  max={3}
+                  step={1}
+                  value={galleryThumbStop}
+                  onChange={(e) => setGalleryThumbStop(Number.parseInt(e.target.value, 10) || 0)}
+                />
+              </label>
               <button type="button" className="ghost" onClick={onClearGallery} disabled={appData.gallery.length === 0}>Clear Gallery</button>
               <button type="button" onClick={onExportZip} disabled={appData.gallery.length === 0}>Export ZIP</button>
             </div>
           </div>
 
-          <div className="gallery-grid">
+          <div className="gallery-grid" style={{ ["--thumb-size" as string]: `${galleryThumbWidth}px` }}>
             {appData.gallery.length === 0 ? <div className="empty">No images yet. Generate one from the tool panel.</div> : null}
             {appData.gallery
               .slice()
@@ -1772,7 +1921,7 @@ const App = (): JSX.Element => {
                 />
 
                 <small className="muted">Models selected: {selectedModelIds.length}</small>
-                <small className="muted">Batch: {batchMode ? `${Math.max(2, Math.min(4, batchCount))} per model` : "1 per model"}</small>
+                <small className="muted">Batch: {batchMode ? `${Math.max(2, Math.min(10, batchCount))} per model` : "1 per model"}</small>
                 {modelWarnings.length ? (
                   <div className="warning-list">
                     {modelWarnings.map((warning, index) => (
@@ -1922,6 +2071,26 @@ const App = (): JSX.Element => {
             <span className="gen-popover-title">{isEditMode ? "Editing" : "Generating"}</span>
           </div>
           <p className="gen-popover-status">{status}</p>
+          <small className="gen-popover-status">
+            Queued {requestSummary.queued} · Running {requestSummary.running} · Done {requestSummary.success + requestSummary.failed}/{requestSummary.total}
+          </small>
+          <button
+            type="button"
+            className="ghost gen-popover-toggle"
+            onClick={() => setIsGenPopoverExpanded((prev) => !prev)}
+          >
+            {isGenPopoverExpanded ? "Hide Requests" : "Show Requests"}
+          </button>
+          {isGenPopoverExpanded ? (
+            <div className="gen-popover-list" role="list" aria-label="Request statuses">
+              {requestStatuses.map((item) => (
+                <div key={item.id} role="listitem" className={`gen-popover-item gen-popover-item-${item.state}`}>
+                  <span>{item.label}</span>
+                  <small>{item.state}{item.detail ? ` - ${item.detail}` : ""}</small>
+                </div>
+              ))}
+            </div>
+          ) : null}
           <div className="gen-popover-bar-track" aria-hidden="true">
             <div className="gen-popover-bar-fill" />
           </div>

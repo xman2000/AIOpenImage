@@ -214,8 +214,9 @@ export const generateImage = async (
 
   let data: Record<string, any> | null = null;
   let retries = 0;
-  try {
-    while (retries < 3) {
+  const maxRetries = 4;
+  while (retries < maxRetries) {
+    try {
       const response = await fetch(BASE_URL, {
         method: "POST",
         headers: {
@@ -247,9 +248,13 @@ export const generateImage = async (
       }
       data = parsed;
       break;
+    } catch (error) {
+      retries += 1;
+      if (retries >= maxRetries) {
+        return { ok: false, error: buildNetworkError(error) };
+      }
+      await new Promise((resolve) => setTimeout(resolve, 2 ** retries * 1000));
     }
-  } catch (error) {
-    return { ok: false, error: buildNetworkError(error) };
   }
 
   if (!data) {
@@ -294,6 +299,8 @@ export const generateImage = async (
     aspectRatio: options.aspectRatio,
     imageSize: options.imageSize,
     seed: options.seed,
+    batchMode: options.batchMode,
+    batchIndex: options.batchIndex,
     img2imgMode: Boolean(options.referenceImage),
     editMode: options.editMode,
     parentImageId: options.parentImageId,
@@ -320,15 +327,24 @@ export const generateImageBatch = async (
   userDataPath: string,
   appPath: string
 ): Promise<GenerationResult[]> => {
-  const results: GenerationResult[] = [];
-  for (let i = 0; i < count; i += 1) {
-    const seed = typeof options.seed === "number" ? options.seed + i : 42 + i;
-    const result = await generateImage({ ...options, seed }, userDataPath, appPath);
-    if (result.ok && result.image) {
-      result.image.batchMode = true;
-      result.image.batchIndex = i + 1;
+  const results: GenerationResult[] = new Array(count);
+  let nextIndex = 0;
+  const workerCount = Math.max(1, Math.min(3, count));
+
+  const runWorker = async (): Promise<void> => {
+    while (nextIndex < count) {
+      const i = nextIndex;
+      nextIndex += 1;
+      const seed = typeof options.seed === "number" ? options.seed + i : 42 + i;
+      const result = await generateImage({ ...options, seed }, userDataPath, appPath);
+      if (result.ok && result.image) {
+        result.image.batchMode = true;
+        result.image.batchIndex = i + 1;
+      }
+      results[i] = result;
     }
-    results.push(result);
-  }
+  };
+
+  await Promise.all(Array.from({ length: workerCount }, () => runWorker()));
   return results;
 };
