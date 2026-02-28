@@ -20,6 +20,12 @@
   --warn: #f0a830;
   --radius: 10px;
   --shadow: 0 14px 30px rgba(0, 0, 0, 0.45);
+  --neon-toxic-green-a: #a9ff6f;
+  --neon-toxic-green-b: #2dff4d;
+  --neon-toxic-green-c: #0b7f18;
+  --neon-blood-red-a: #d4151d;
+  --neon-blood-red-b: #89010a;
+  --neon-blood-red-c: #3f0004;
 }
 
 :root[data-theme="light"] {
@@ -559,29 +565,44 @@ select {
   height: 38px;
   pointer-events: none;
   z-index: 1;
-  opacity: 0;
+  opacity: 0.22;
   transition: opacity 300ms ease;
 }
 
 .generate-wrap::before {
   background:
-    radial-gradient(ellipse 14% 65% at 18% 100%, var(--accent-strong) 0%, transparent 100%),
-    radial-gradient(ellipse 10% 70% at 42% 100%, var(--accent) 0%, transparent 100%),
-    radial-gradient(ellipse 12% 55% at 68% 100%, var(--accent-strong) 0%, transparent 100%),
-    radial-gradient(ellipse 8% 60% at 88% 100%, var(--accent) 0%, transparent 100%);
+    radial-gradient(ellipse 14% 65% at 18% 100%, #6dff7f 0%, transparent 100%),
+    radial-gradient(ellipse 10% 70% at 42% 100%, #26ff57 0%, transparent 100%),
+    radial-gradient(ellipse 12% 55% at 68% 100%, #0be02d 0%, transparent 100%),
+    radial-gradient(ellipse 8% 60% at 88% 100%, #5aff3a 0%, transparent 100%);
   filter: blur(3px);
-  animation: flame-flicker-a 600ms ease-in-out infinite alternate;
 }
 
 .generate-wrap::after {
   background:
-    radial-gradient(ellipse 8% 50% at 10% 100%, var(--accent) 0%, transparent 100%),
-    radial-gradient(ellipse 12% 75% at 32% 100%, var(--accent-strong) 0%, transparent 100%),
-    radial-gradient(ellipse 14% 60% at 55% 100%, var(--accent) 0%, transparent 100%),
-    radial-gradient(ellipse 10% 65% at 78% 100%, var(--accent-strong) 0%, transparent 100%),
-    radial-gradient(ellipse 7% 55% at 95% 100%, var(--accent) 0%, transparent 100%);
+    radial-gradient(ellipse 8% 50% at 10% 100%, #35ff5b 0%, transparent 100%),
+    radial-gradient(ellipse 12% 75% at 32% 100%, #77ff6f 0%, transparent 100%),
+    radial-gradient(ellipse 14% 60% at 55% 100%, #17f748 0%, transparent 100%),
+    radial-gradient(ellipse 10% 65% at 78% 100%, #4aff67 0%, transparent 100%),
+    radial-gradient(ellipse 7% 55% at 95% 100%, #83ff52 0%, transparent 100%);
   filter: blur(5px);
-  animation: flame-flicker-b 450ms ease-in-out infinite alternate;
+}
+
+.generate-wrap-stop::before {
+  background:
+    radial-gradient(ellipse 14% 65% at 18% 100%, #ff3a32 0%, transparent 100%),
+    radial-gradient(ellipse 10% 70% at 42% 100%, #d4151d 0%, transparent 100%),
+    radial-gradient(ellipse 12% 55% at 68% 100%, #89010a 0%, transparent 100%),
+    radial-gradient(ellipse 8% 60% at 88% 100%, #520005 0%, transparent 100%);
+}
+
+.generate-wrap-stop::after {
+  background:
+    radial-gradient(ellipse 8% 50% at 10% 100%, #f21f24 0%, transparent 100%),
+    radial-gradient(ellipse 12% 75% at 32% 100%, #9f050f 0%, transparent 100%),
+    radial-gradient(ellipse 14% 60% at 55% 100%, #670006 0%, transparent 100%),
+    radial-gradient(ellipse 10% 65% at 78% 100%, #cc1118 0%, transparent 100%),
+    radial-gradient(ellipse 7% 55% at 95% 100%, #3f0004 0%, transparent 100%);
 }
 
 .generate-wrap-disabled::before,
@@ -593,6 +614,11 @@ select {
 .generate-wrap:has(.generate:active:not(:disabled))::before,
 .generate-wrap:has(.generate:active:not(:disabled))::after {
   opacity: 1;
+}
+
+.generate-wrap:has(.generate:hover:not(:disabled))::before,
+.generate-wrap:has(.generate:hover:not(:disabled))::after {
+  opacity: 0.6;
 }
 
 /* — The button itself — */
@@ -607,21 +633,37 @@ select {
   font-size: 15px;
   font-weight: 650;
   letter-spacing: 0.02em;
-  text-shadow: 0 1px 2px color-mix(in srgb, black 40%, transparent);
-  color: var(--button-ink);
+  text-shadow: 0 1px 2px color-mix(in srgb, white 22%, transparent);
+  color: #03210c;
   background:
     linear-gradient(
       160deg,
-      color-mix(in srgb, var(--accent) 90%, white) 0%,
-      var(--accent) 40%,
-      var(--accent-strong) 100%
+      #a9ff6f 0%,
+      #2dff4d 38%,
+      #0b7f18 100%
     );
   background-size: 200% 200%;
-  animation: generate-sway 6s ease-in-out infinite;
   box-shadow:
-    0 1px 0 inset color-mix(in srgb, white 18%, transparent),
-    0 4px 14px color-mix(in srgb, var(--accent) 28%, transparent);
+    0 1px 0 inset color-mix(in srgb, white 20%, transparent),
+    0 6px 18px color-mix(in srgb, #2dff4d 55%, transparent),
+    0 0 32px color-mix(in srgb, #8dff4b 38%, transparent);
   transition: box-shadow 250ms ease, transform 180ms ease;
+}
+
+.generate.generate-stop {
+  background:
+    linear-gradient(
+      160deg,
+      #8f0007 0%,
+      #5d0004 45%,
+      #2d0002 100%
+    );
+  box-shadow:
+    0 1px 0 inset color-mix(in srgb, #ff9d95 20%, transparent),
+    0 6px 18px color-mix(in srgb, #ff1f2d 58%, transparent),
+    0 0 38px color-mix(in srgb, #44ff4f 34%, transparent);
+  color: #fff4f3 !important;
+  text-shadow: 0 1px 2px color-mix(in srgb, black 58%, transparent);
 }
 
 /* Molten inner light — slow drifting highlight */
@@ -633,12 +675,20 @@ select {
   background:
     radial-gradient(
       ellipse 110% 80% at 25% 110%,
-      color-mix(in srgb, white 18%, transparent) 0%,
+      color-mix(in srgb, #ccffb6 34%, transparent) 0%,
       transparent 60%
     );
-  opacity: 0.7;
-  animation: generate-inner-glow 4s ease-in-out infinite alternate;
+  opacity: 0.85;
   pointer-events: none;
+}
+
+.generate.generate-stop::before {
+  background:
+    radial-gradient(
+      ellipse 120% 95% at 20% 115%,
+      color-mix(in srgb, #ff6e63 30%, transparent) 0%,
+      transparent 62%
+    );
 }
 
 /* Surface shimmer band — single slow pass, repeating */
@@ -652,13 +702,22 @@ select {
   background: linear-gradient(
     100deg,
     transparent 0%,
-    color-mix(in srgb, white 22%, transparent) 42%,
-    color-mix(in srgb, white 8%, transparent) 58%,
-    transparent 100%
+     color-mix(in srgb, #e5ffd8 40%, transparent) 42%,
+     color-mix(in srgb, #9fff86 16%, transparent) 58%,
+     transparent 100%
   );
   transform: rotate(20deg);
-  animation: generate-shimmer 4.5s cubic-bezier(0.4, 0, 0.2, 1) infinite;
   pointer-events: none;
+}
+
+.generate.generate-stop::after {
+  background: linear-gradient(
+    100deg,
+    transparent 0%,
+    color-mix(in srgb, #ffb2a9 36%, transparent) 42%,
+    color-mix(in srgb, #65ff6f 20%, transparent) 58%,
+    transparent 100%
+  );
 }
 
 /* ─ Disabled: quiet, flat, no effects ─ */
@@ -683,10 +742,17 @@ select {
 
 .generate:hover:not(:disabled) {
   box-shadow:
-    0 1px 0 inset color-mix(in srgb, white 22%, transparent),
-    0 6px 20px color-mix(in srgb, var(--accent) 38%, transparent),
-    0 0 30px color-mix(in srgb, var(--accent) 16%, transparent);
+    0 1px 0 inset color-mix(in srgb, #e8ffd7 28%, transparent),
+    0 8px 24px color-mix(in srgb, #2dff4d 62%, transparent),
+    0 0 38px color-mix(in srgb, #8fff56 30%, transparent);
   transform: translateY(-1px);
+}
+
+.generate.generate-stop:hover:not(:disabled) {
+  box-shadow:
+    0 1px 0 inset color-mix(in srgb, #ffb1aa 28%, transparent),
+    0 8px 24px color-mix(in srgb, #ff1f2d 65%, transparent),
+    0 0 44px color-mix(in srgb, #48ff54 38%, transparent);
 }
 
 /* ─ Active/click: burst flash + flames from wrapper ─ */
@@ -694,10 +760,17 @@ select {
 .generate:active:not(:disabled) {
   transform: translateY(1px) scale(0.98);
   box-shadow:
-    0 1px 0 inset color-mix(in srgb, white 30%, transparent),
-    0 0 40px color-mix(in srgb, var(--accent) 55%, transparent),
-    0 0 80px color-mix(in srgb, var(--accent) 25%, transparent);
+    0 1px 0 inset color-mix(in srgb, #ebffd8 34%, transparent),
+    0 0 44px color-mix(in srgb, #2dff4d 66%, transparent),
+    0 0 90px color-mix(in srgb, #8fff56 36%, transparent);
   transition: box-shadow 60ms ease, transform 60ms ease;
+}
+
+.generate.generate-stop:active:not(:disabled) {
+  box-shadow:
+    0 1px 0 inset color-mix(in srgb, #ffc9c3 34%, transparent),
+    0 0 46px color-mix(in srgb, #ff1f2d 70%, transparent),
+    0 0 96px color-mix(in srgb, #5bff64 46%, transparent);
 }
 
 /* ── Keyframes ─────────────────────────────────────────────── */
@@ -717,6 +790,102 @@ select {
   30%      { opacity: 0.6; }
   70%      { opacity: 0.6; }
   80%, 100% { left: 130%; opacity: 0; }
+}
+
+@keyframes neon-radiate-green {
+  0%, 100% {
+    filter: saturate(1.05) brightness(1);
+    box-shadow:
+      0 1px 0 inset color-mix(in srgb, #ebffd8 22%, transparent),
+      0 6px 18px color-mix(in srgb, #2dff4d 50%, transparent),
+      0 0 32px color-mix(in srgb, #8dff4b 34%, transparent);
+  }
+  50% {
+    filter: saturate(1.35) brightness(1.08);
+    box-shadow:
+      0 1px 0 inset color-mix(in srgb, #f2ffe8 34%, transparent),
+      0 10px 26px color-mix(in srgb, #2dff4d 70%, transparent),
+      0 0 52px color-mix(in srgb, #93ff4f 52%, transparent);
+  }
+}
+
+@keyframes neon-radiate-red {
+  0%, 100% {
+    filter: saturate(1.05) brightness(0.94);
+    box-shadow:
+      0 1px 0 inset color-mix(in srgb, #ffb0a8 18%, transparent),
+      0 6px 18px color-mix(in srgb, #ff1f2d 54%, transparent),
+      0 0 38px color-mix(in srgb, #44ff4f 30%, transparent);
+  }
+  50% {
+    filter: saturate(1.4) brightness(1.02);
+    box-shadow:
+      0 1px 0 inset color-mix(in srgb, #ffd8d1 30%, transparent),
+      0 12px 30px color-mix(in srgb, #ff1f2d 74%, transparent),
+      0 0 62px color-mix(in srgb, #5bff64 48%, transparent);
+  }
+}
+
+@keyframes neon-tube-green {
+  0%, 100% {
+    border-color: color-mix(in srgb, var(--neon-toxic-green-b) 90%, white 10%);
+    box-shadow:
+      0 0 0 1px color-mix(in srgb, var(--neon-toxic-green-b) 38%, transparent),
+      0 0 13px color-mix(in srgb, var(--neon-toxic-green-b) 40%, transparent),
+      0 0 30px color-mix(in srgb, var(--neon-toxic-green-a) 20%, transparent);
+  }
+  24% {
+    border-color: color-mix(in srgb, var(--neon-toxic-green-a) 92%, white 8%);
+    box-shadow:
+      0 0 0 1px color-mix(in srgb, var(--neon-toxic-green-a) 50%, transparent),
+      0 0 17px color-mix(in srgb, var(--neon-toxic-green-b) 56%, transparent),
+      0 0 44px color-mix(in srgb, var(--neon-toxic-green-a) 30%, transparent);
+  }
+  50% {
+    border-color: color-mix(in srgb, var(--neon-toxic-green-b) 88%, white 12%);
+    box-shadow:
+      0 0 0 1px color-mix(in srgb, var(--neon-toxic-green-b) 44%, transparent),
+      0 0 15px color-mix(in srgb, var(--neon-toxic-green-b) 48%, transparent),
+      0 0 36px color-mix(in srgb, var(--neon-toxic-green-a) 24%, transparent);
+  }
+  76% {
+    border-color: color-mix(in srgb, var(--neon-toxic-green-a) 94%, white 6%);
+    box-shadow:
+      0 0 0 1px color-mix(in srgb, var(--neon-toxic-green-a) 52%, transparent),
+      0 0 19px color-mix(in srgb, var(--neon-toxic-green-b) 58%, transparent),
+      0 0 48px color-mix(in srgb, var(--neon-toxic-green-a) 34%, transparent);
+  }
+}
+
+@keyframes neon-tube-red {
+  0%, 100% {
+    border-color: color-mix(in srgb, var(--neon-blood-red-a) 94%, white 6%);
+    box-shadow:
+      0 0 0 1px color-mix(in srgb, var(--neon-blood-red-a) 42%, transparent),
+      0 0 15px color-mix(in srgb, var(--neon-blood-red-a) 48%, transparent),
+      0 0 34px color-mix(in srgb, var(--neon-toxic-green-b) 22%, transparent);
+  }
+  26% {
+    border-color: #ff2a33;
+    box-shadow:
+      0 0 0 1px color-mix(in srgb, #ff2a33 58%, transparent),
+      0 0 20px color-mix(in srgb, #ff1f2d 66%, transparent),
+      0 0 50px color-mix(in srgb, var(--neon-toxic-green-a) 32%, transparent);
+  }
+  52% {
+    border-color: color-mix(in srgb, var(--neon-blood-red-a) 90%, white 10%);
+    box-shadow:
+      0 0 0 1px color-mix(in srgb, var(--neon-blood-red-a) 46%, transparent),
+      0 0 16px color-mix(in srgb, var(--neon-blood-red-a) 52%, transparent),
+      0 0 38px color-mix(in srgb, var(--neon-toxic-green-b) 24%, transparent);
+  }
+  78% {
+    border-color: color-mix(in srgb, #ff3c44 94%, white 6%);
+    box-shadow:
+      0 0 0 1px color-mix(in srgb, #ff3c44 60%, transparent),
+      0 0 22px color-mix(in srgb, #ff1f2d 70%, transparent),
+      0 0 56px color-mix(in srgb, var(--neon-toxic-green-a) 36%, transparent);
+  }
 }
 
 @keyframes flame-flicker-a {
@@ -834,6 +1003,12 @@ select {
   transform: translateY(16px);
 }
 
+.loading-logo {
+  width: clamp(220px, 38vw, 380px);
+  height: auto;
+  filter: drop-shadow(0 0 18px rgba(120, 255, 170, 0.25));
+}
+
 .loading-footer {
   position: absolute;
   bottom: 16px;
@@ -947,6 +1122,21 @@ select {
   border: 1px solid var(--line);
   border-radius: 14px;
   background: var(--bg-elevated);
+}
+
+.desktop-brand {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-width: 0;
+}
+
+.desktop-brand-logo {
+  width: 36px;
+  height: 36px;
+  object-fit: contain;
+  flex-shrink: 0;
+  filter: drop-shadow(0 0 8px color-mix(in srgb, var(--accent) 35%, transparent));
 }
 
 .desktop-header h1 {
@@ -1070,33 +1260,49 @@ textarea {
 }
 
 .prompt-glow {
-  border-color: #39ff14;
+  border-color: var(--neon-toxic-green-b);
+  background: transparent;
   box-shadow:
-    0 0 0 1px rgba(57, 255, 20, 0.35),
-    0 0 12px rgba(57, 255, 20, 0.3);
+    0 0 0 1px color-mix(in srgb, var(--neon-toxic-green-b) 38%, transparent),
+    0 0 14px color-mix(in srgb, var(--neon-toxic-green-b) 40%, transparent),
+    0 0 36px color-mix(in srgb, var(--neon-toxic-green-a) 18%, transparent);
 }
 
 .prompt-glow:focus {
   outline: none;
-  border-color: #39ff14;
+  border-color: var(--neon-toxic-green-a);
+  background: transparent;
   box-shadow:
-    0 0 0 2px rgba(57, 255, 20, 0.45),
-    0 0 20px rgba(57, 255, 20, 0.45);
+    0 0 0 2px color-mix(in srgb, var(--neon-toxic-green-a) 55%, transparent),
+    0 0 24px color-mix(in srgb, var(--neon-toxic-green-b) 48%, transparent),
+    0 0 56px color-mix(in srgb, var(--neon-toxic-green-a) 26%, transparent);
 }
 
 .negative-glow {
-  border-color: var(--status-error-ink);
+  border-color: var(--neon-blood-red-a);
+  background: transparent;
   box-shadow:
-    0 0 0 1px color-mix(in srgb, var(--status-error-ink) 45%, transparent),
-    0 0 12px color-mix(in srgb, var(--status-error-ink) 25%, transparent);
+    0 0 0 1px color-mix(in srgb, var(--neon-blood-red-a) 48%, transparent),
+    0 0 16px color-mix(in srgb, var(--neon-blood-red-a) 40%, transparent),
+    0 0 36px color-mix(in srgb, var(--neon-toxic-green-b) 20%, transparent);
 }
 
 .negative-glow:focus {
   outline: none;
-  border-color: var(--status-error-ink);
+  border-color: #ff2e35;
+  background: transparent;
   box-shadow:
-    0 0 0 2px color-mix(in srgb, var(--status-error-ink) 65%, transparent),
-    0 0 20px color-mix(in srgb, var(--status-error-ink) 40%, transparent);
+    0 0 0 2px color-mix(in srgb, #ff3e46 62%, transparent),
+    0 0 24px color-mix(in srgb, #ff1f2d 56%, transparent),
+    0 0 58px color-mix(in srgb, var(--neon-toxic-green-a) 28%, transparent);
+}
+
+.prompt-glow::placeholder {
+  color: color-mix(in srgb, var(--neon-toxic-green-a) 65%, var(--ink-soft));
+}
+
+.negative-glow::placeholder {
+  color: color-mix(in srgb, #ff8e92 70%, var(--ink-soft));
 }
 
 .muted,
@@ -2032,6 +2238,10 @@ textarea {
 
 .gen-popover-item-failed {
   border-color: color-mix(in srgb, var(--status-error-ink) 45%, var(--line));
+}
+
+.gen-popover-item-cancelled {
+  border-color: color-mix(in srgb, #f35547 45%, var(--line));
 }
 
 @keyframes gen-popover-in {

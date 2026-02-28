@@ -1,5 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import type { ChangeEvent, PointerEvent as ReactPointerEvent } from "react";
+import appLogo from "./assets/app-logo.png";
+import appIcon from "./assets/app-icon.png";
 import type {
   AppData,
   GalleryItem,
@@ -26,7 +28,7 @@ type AppInfo = {
 type RequestStatus = {
   id: string;
   label: string;
-  state: "queued" | "running" | "success" | "failed";
+  state: "queued" | "running" | "success" | "failed" | "cancelled";
   detail?: string;
 };
 
@@ -208,6 +210,7 @@ const App = (): JSX.Element => {
   const [loadingScreenHidden, setLoadingScreenHidden] = useState(false);
   const [appVisible, setAppVisible] = useState(false);
   const [busy, setBusy] = useState(false);
+  const [isGenerating, setIsGenerating] = useState(false);
   const [status, setStatus] = useState("");
   const [statusTone, setStatusTone] = useState<"idle" | "info" | "success" | "error">("idle");
   const [isSettingsOpen, setIsSettingsOpen] = useState(false);
@@ -218,7 +221,7 @@ const App = (): JSX.Element => {
   const [fullscreenImageSrc, setFullscreenImageSrc] = useState<string | null>(null);
   const [appInfo, setAppInfo] = useState<AppInfo>({
     name: "AI Open Image",
-    version: "0.4.0",
+    version: "0.4.1",
     releaseDate: "Local Build",
     platform: "win32"
   });
@@ -281,6 +284,7 @@ const App = (): JSX.Element => {
   const compareDraggingRef = useRef(false);
   const workspaceResizeRef = useRef<{ startX: number; startWidth: number } | null>(null);
   const bootStartedAtRef = useRef<number>(Date.now());
+  const stopGenerationRequestedRef = useRef(false);
 
   const clampToolPanelWidth = (width: number): number => {
     const minWidth = 240;
@@ -323,7 +327,8 @@ const App = (): JSX.Element => {
     const running = requestStatuses.filter((item) => item.state === "running").length;
     const success = requestStatuses.filter((item) => item.state === "success").length;
     const failed = requestStatuses.filter((item) => item.state === "failed").length;
-    return { queued, running, success, failed, total: requestStatuses.length };
+    const cancelled = requestStatuses.filter((item) => item.state === "cancelled").length;
+    return { queued, running, success, failed, cancelled, total: requestStatuses.length };
   }, [requestStatuses]);
   const statusHelp = useMemo(
     () =>
@@ -998,6 +1003,15 @@ const App = (): JSX.Element => {
   };
 
   const onGenerate = async (): Promise<void> => {
+    if (isGenerating) {
+      if (!stopGenerationRequestedRef.current) {
+        stopGenerationRequestedRef.current = true;
+        setStatusTone("info");
+        setStatus(`Stopping ${isEditMode ? "edit" : "generation"} after active requests complete...`);
+      }
+      return;
+    }
+
     if (!prompt.trim() || selectedModelIds.length === 0) {
       return;
     }
@@ -1013,6 +1027,8 @@ const App = (): JSX.Element => {
     }
 
     setBusy(true);
+    setIsGenerating(true);
+    stopGenerationRequestedRef.current = false;
     setModelWarnings([]);
     setIsGenPopoverExpanded(false);
     setStatusTone("info");
@@ -1027,6 +1043,7 @@ const App = (): JSX.Element => {
       const warnings: string[] = [];
       let successCount = 0;
       let failedCount = 0;
+      let cancelledCount = 0;
       let latestProducedPath: string | null = null;
 
       setStatus(
@@ -1070,9 +1087,30 @@ const App = (): JSX.Element => {
       setRequestStatuses(tasks.map((task) => ({ id: task.id, label: task.label, state: "queued" as const })));
 
       await runWithConcurrency(tasks, concurrencyLimit, async (task, taskIndex) => {
+        if (stopGenerationRequestedRef.current) {
+          cancelledCount += 1;
+          completedRequests += 1;
+          setRequestStatuses((prev) =>
+            prev.map((item) => (item.id === task.id ? { ...item, state: "cancelled", detail: "Stopped" } : item))
+          );
+          setStatus(`${isEditMode ? "Editing" : "Generating"}... ${completedRequests}/${totalRequests} complete`);
+          return;
+        }
+
         if (taskIndex > 0) {
           await new Promise((resolve) => setTimeout(resolve, taskIndex * 500));
         }
+
+        if (stopGenerationRequestedRef.current) {
+          cancelledCount += 1;
+          completedRequests += 1;
+          setRequestStatuses((prev) =>
+            prev.map((item) => (item.id === task.id ? { ...item, state: "cancelled", detail: "Stopped" } : item))
+          );
+          setStatus(`${isEditMode ? "Editing" : "Generating"}... ${completedRequests}/${totalRequests} complete`);
+          return;
+        }
+
         setRequestStatuses((prev) => prev.map((item) => (item.id === task.id ? { ...item, state: "running" } : item)));
 
         const model = models.find((m) => m.model_id === task.modelId);
@@ -1149,9 +1187,25 @@ const App = (): JSX.Element => {
       }
 
       if (failedCount > 0) {
-        setStatusTone("error");
+        if (stopGenerationRequestedRef.current) {
+          setStatusTone("info");
+          setStatus(
+            `${isEditMode ? "Edit run" : "Generation"} stopped: ${successCount} succeeded, ${failedCount} failed, ${cancelledCount} cancelled.${
+              warnings.length ? ` ${warnings.length} warning(s).` : ""
+            }`
+          );
+        } else {
+          setStatusTone("error");
+          setStatus(
+            `${isEditMode ? "Edit run" : "Generation"} completed: ${successCount} succeeded, ${failedCount} failed.${
+              warnings.length ? ` ${warnings.length} warning(s).` : ""
+            }`
+          );
+        }
+      } else if (stopGenerationRequestedRef.current) {
+        setStatusTone("info");
         setStatus(
-          `${isEditMode ? "Edit run" : "Generation"} completed: ${successCount} succeeded, ${failedCount} failed.${
+          `${isEditMode ? "Edit run" : "Generation"} stopped: ${successCount} completed, ${cancelledCount} cancelled.${
             warnings.length ? ` ${warnings.length} warning(s).` : ""
           }`
         );
@@ -1169,6 +1223,8 @@ const App = (): JSX.Element => {
       setStatusTone("error");
       setStatus(`Error: ${String(error)}`);
     } finally {
+      stopGenerationRequestedRef.current = false;
+      setIsGenerating(false);
       setBusy(false);
     }
   };
@@ -1328,9 +1384,12 @@ const App = (): JSX.Element => {
       </div>
       <main className={`app-shell desktop ${appVisible ? "app-shell-visible" : "app-shell-hidden"}`}>
       <header className="desktop-header">
-        <div>
-          <h1>AI Open Image</h1>
-          <p className="muted">Desktop studio for generation, iteration, and gallery export.</p>
+        <div className="desktop-brand">
+          <img src={appIcon} alt="AI Open Image" className="desktop-brand-logo" />
+          <div>
+            <h1>AI Open Image</h1>
+            <p className="muted">Desktop studio for generation, iteration, and gallery export.</p>
+          </div>
         </div>
         <div className="desktop-header-actions">
           <select
@@ -1396,24 +1455,22 @@ const App = (): JSX.Element => {
               placeholder="Negative Prompt - This tells the model what to avoid. Think of it as guardrails for your image."
             />
 
-            <div className={`generate-wrap${busy || !prompt.trim() || (requiresApiKey && !appData.settings.apiKey) || selectedModelIds.length === 0 || (isEditMode && !referenceImage) ? " generate-wrap-disabled" : ""}`}>
+            <div className={`generate-wrap${isGenerating ? " generate-wrap-stop" : ""}${(!isGenerating && (busy || !prompt.trim() || (requiresApiKey && !appData.settings.apiKey) || selectedModelIds.length === 0 || (isEditMode && !referenceImage))) ? " generate-wrap-disabled" : ""}`}>
               <button
                 type="button"
-                className="generate"
+                className={`generate${isGenerating ? " generate-stop" : ""}`}
                 disabled={
-                  busy ||
-                  !prompt.trim() ||
-                  (requiresApiKey && !appData.settings.apiKey) ||
-                  selectedModelIds.length === 0 ||
-                  (isEditMode && !referenceImage)
+                  isGenerating
+                    ? false
+                    : busy ||
+                      !prompt.trim() ||
+                      (requiresApiKey && !appData.settings.apiKey) ||
+                      selectedModelIds.length === 0 ||
+                      (isEditMode && !referenceImage)
                 }
                 onClick={onGenerate}
               >
-                {busy
-                  ? isEditMode
-                    ? "Editing..."
-                    : "Generating..."
-                  : "Let's Go!"}
+                {isGenerating ? "Stop!" : "Let's Go!"}
               </button>
             </div>
           </section>
@@ -2087,7 +2144,7 @@ const App = (): JSX.Element => {
           </div>
           <p className="gen-popover-status">{status}</p>
           <small className="gen-popover-status">
-            Queued {requestSummary.queued} · Running {requestSummary.running} · Done {requestSummary.success + requestSummary.failed}/{requestSummary.total}
+            Queued {requestSummary.queued} · Running {requestSummary.running} · Done {requestSummary.success + requestSummary.failed + requestSummary.cancelled}/{requestSummary.total}
           </small>
           <button
             type="button"
@@ -2123,6 +2180,7 @@ const App = (): JSX.Element => {
           aria-hidden={loadingScreenHidden ? "true" : "false"}
         >
           <div className="loading-content">
+            <img src={appLogo} alt="AI Open Image logo" className="loading-logo" />
             <div className="loading-title">AI Open Image</div>
             <div id="loading-status">{loadingStatusText}</div>
           </div>
