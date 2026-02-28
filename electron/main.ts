@@ -99,14 +99,26 @@ const loadWindowState = async (): Promise<WindowState> => {
 };
 
 const saveWindowState = async (win: BrowserWindow): Promise<void> => {
+  if (win.isDestroyed()) {
+    return;
+  }
+
+  let bounds: Electron.Rectangle;
+  let maximized: boolean;
+  try {
+    bounds = win.getBounds();
+    maximized = win.isMaximized();
+  } catch {
+    return;
+  }
+
   await ensureUserDataDirs();
-  const bounds = win.getBounds();
   const state: WindowState = {
     width: Math.max(500, Math.round(bounds.width)),
     height: Math.max(400, Math.round(bounds.height)),
     x: Math.round(bounds.x),
     y: Math.round(bounds.y),
-    maximized: win.isMaximized()
+    maximized
   };
   await fs.writeFile(windowStatePath(), JSON.stringify(state, null, 2), "utf8");
 };
@@ -146,10 +158,6 @@ const resolveThemeColors = (preference: ThemePreference): { bg: string; ink: str
       : themeColors.light;
   }
   return themeColors[preference] ?? themeColors.dark;
-};
-
-const windowBackgroundColorFor = (preference: ThemePreference): string => {
-  return resolveThemeColors(preference).bg;
 };
 
 const applyWindowBackground = (preference: ThemePreference): void => {

@@ -218,7 +218,7 @@ const App = (): JSX.Element => {
   const [fullscreenImageSrc, setFullscreenImageSrc] = useState<string | null>(null);
   const [appInfo, setAppInfo] = useState<AppInfo>({
     name: "AI Open Image",
-    version: "0.3.1",
+    version: "0.4.0",
     releaseDate: "Local Build",
     platform: "win32"
   });
@@ -1740,8 +1740,8 @@ const App = (): JSX.Element => {
                 <ol>
                   <li>Open <strong>Settings</strong> and choose your backend (OpenRouter or Ollama).</li>
                   <li>For OpenRouter, add your API key and save.</li>
-                  <li>Select one or more models, write a prompt, and click <strong>Let's Go!</strong>.</li>
-                  <li>Click any gallery image to view details, or use the card buttons to edit, reuse settings, or save.</li>
+                  <li>Select one or more models, write a prompt, and click <strong>Let&apos;s Go!</strong>.</li>
+                  <li>Click any gallery image to view details, or use the card buttons to edit or save.</li>
                 </ol>
               </section>
 
