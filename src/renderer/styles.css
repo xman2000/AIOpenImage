@@ -796,7 +796,9 @@ select {
   background:
     radial-gradient(circle at 20% 30%, rgba(60, 220, 160, 0.4) 0%, transparent 50%),
     radial-gradient(circle at 80% 70%, rgba(40, 180, 200, 0.35) 0%, transparent 50%),
-    radial-gradient(circle at 40% 80%, rgba(100, 200, 140, 0.3) 0%, transparent 50%);
+    radial-gradient(circle at 40% 80%, rgba(100, 200, 140, 0.3) 0%, transparent 50%),
+    radial-gradient(circle at 70% 20%, rgba(80, 160, 220, 0.25) 0%, transparent 45%),
+    radial-gradient(circle at 15% 65%, rgba(120, 220, 180, 0.2) 0%, transparent 40%);
   filter: blur(60px);
   opacity: 0.9;
   animation: layer1 18s ease-in-out infinite;
@@ -809,7 +811,8 @@ select {
   inset: -50%;
   background:
     radial-gradient(circle at 60% 40%, rgba(50, 200, 150, 0.3) 0%, transparent 45%),
-    radial-gradient(circle at 30% 70%, rgba(70, 170, 210, 0.25) 0%, transparent 45%);
+    radial-gradient(circle at 30% 70%, rgba(70, 170, 210, 0.25) 0%, transparent 45%),
+    radial-gradient(circle at 50% 20%, rgba(90, 210, 160, 0.2) 0%, transparent 40%);
   filter: blur(50px);
   opacity: 0.7;
   animation: layer2 24s ease-in-out infinite;
@@ -867,6 +870,7 @@ select {
   letter-spacing: 0.03em;
   min-height: 24px;
   text-align: center;
+  text-shadow: 0 0 10px rgba(180, 135, 40, 0.22);
 }
 
 .loading-oss-thanks {
@@ -916,12 +920,14 @@ select {
     text-shadow:
       0 0 20px rgba(100, 220, 160, 0.4),
       0 0 40px rgba(100, 220, 160, 0.2),
+      0 0 60px rgba(100, 220, 160, 0.1),
       0 4px 30px rgba(0, 0, 0, 0.3);
   }
   50% {
     text-shadow:
       0 0 30px rgba(100, 220, 160, 0.6),
       0 0 60px rgba(100, 220, 160, 0.3),
+      0 0 90px rgba(100, 220, 160, 0.15),
       0 4px 30px rgba(0, 0, 0, 0.3);
   }
 }
@@ -982,6 +988,7 @@ select {
 .workspace-resizer {
   width: 10px;
   min-width: 10px;
+  margin: 10px 0;
   cursor: col-resize;
   border-radius: 8px;
   background:

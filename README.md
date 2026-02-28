@@ -4,7 +4,7 @@ AI Open Image is a FREE desktop image generation and editing studio built with E
 
 It is designed for fast iteration across multiple models, non-destructive edit workflows, and local-first gallery management.
 
-![AI Open Image Screenshot](docs/screenshot.png)
+![AI Open Image Screenshot](docs/screenshot2.png)
 
 # Acknowledgement
 

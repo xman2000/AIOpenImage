@@ -218,7 +218,7 @@ const App = (): JSX.Element => {
   const [fullscreenImageSrc, setFullscreenImageSrc] = useState<string | null>(null);
   const [appInfo, setAppInfo] = useState<AppInfo>({
     name: "AI Open Image",
-    version: "0.3.0",
+    version: "0.3.1",
     releaseDate: "Local Build",
     platform: "win32"
   });
@@ -338,24 +338,36 @@ const App = (): JSX.Element => {
   );
 
   useEffect(() => {
+    const delay = (ms: number): Promise<void> => new Promise((resolve) => setTimeout(resolve, ms));
+
     const boot = async (): Promise<void> => {
       try {
-        setLoadingStatusText("Loading workspace...");
+        setLoadingStatusText("Initializing...");
+        await delay(400);
+
+        setLoadingStatusText("Loading settings and workspace...");
         const loadedData = await window.appApi.loadAppData();
+        await delay(300);
 
-        setLoadingStatusText("Loading model catalog...");
-        const loadedModels = await window.appApi.listModels();
-
-        setLoadingStatusText("Loading app info...");
-        const loadedInfo = await window.appApi.getAppInfo();
-
+        setLoadingStatusText("Applying theme...");
         setAppData(loadedData);
-        setAppInfo(loadedInfo);
         setApiKeyInput(loadedData.settings.apiKey ?? "");
         setBackendInput(loadedData.settings.imageBackend ?? "openrouter");
         setOllamaBaseUrlInput(loadedData.settings.ollamaBaseUrl ?? "http://localhost:11434");
         setThemeInput(loadedData.settings.themePreference ?? "system");
         applyTheme(loadedData.settings.themePreference ?? "system");
+        await delay(300);
+
+        setLoadingStatusText("Loading model catalog...");
+        const loadedModels = await window.appApi.listModels();
+        await delay(300);
+
+        setLoadingStatusText("Loading app info...");
+        const loadedInfo = await window.appApi.getAppInfo();
+        setAppInfo(loadedInfo);
+        await delay(300);
+
+        setLoadingStatusText("Preparing gallery...");
         setModels(loadedModels);
         if (loadedModels.length > 0) {
           setSelectedModelIds([loadedModels[0].model_id]);
@@ -365,6 +377,10 @@ const App = (): JSX.Element => {
             `No models available for ${loadedData.settings.imageBackend}. Check your backend settings and try again.`
           );
         }
+        await delay(400);
+
+        setLoadingStatusText(`${loadedModels.length} models loaded. ${loadedData.gallery.length} images in gallery.`);
+        await delay(600);
       } catch (error) {
         setStatusTone("error");
         setStatus(`Startup warning: ${String(error)}`);
@@ -1554,7 +1570,7 @@ const App = (): JSX.Element => {
           <div className="toolbar">
             <div>
               <h2>Gallery</h2>
-              <p className="muted">Total cost tracked: ${appData.totalCost.toFixed(6)}</p>
+              <p className="muted">Estimated Total Cost: ${appData.totalCost.toFixed(6)}</p>
             </div>
             <div className="toolbar-actions">
               <label className="thumb-size-control" title="Gallery thumbnail size">
@@ -1601,7 +1617,6 @@ const App = (): JSX.Element => {
                     </div>
                     <div className="card-actions">
                       <button type="button" className="ghost" onClick={() => void onStartEdit(item)}>Edit</button>
-                      <button type="button" className="ghost" onClick={() => onReuseImageSettings(item)}>Reuse</button>
                       <button type="button" onClick={() => onSaveImageAs(item)}>Save</button>
                     </div>
                   </div>
