@@ -147,7 +147,7 @@ export const generateImageWithOllama = async (
   if (!options.model.trim()) {
     return { ok: false, error: "Model is required" };
   }
-  if (options.referenceImage) {
+  if ((options.referenceImages && options.referenceImages.length > 0) || options.referenceImage) {
     return { ok: false, error: "Image-to-Image is not implemented for Ollama backend in this app yet." };
   }
 

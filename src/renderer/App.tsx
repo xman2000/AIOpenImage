@@ -23,6 +23,14 @@ type AppInfo = {
   platform: string;
 };
 
+type ReferenceImageSlot = {
+  id: string;
+  dataUrl: string;
+  previewSrc: string;
+  name: string;
+  locked?: boolean;
+};
+
 const presets: StylePreset[] = [
   {
     name: "Cinematic Portrait",
@@ -72,6 +80,7 @@ const themes: { value: ThemePreference; label: string }[] = [
 ];
 
 const aspectRatios = ["1:1", "16:9", "9:16", "4:3", "3:2", "21:9", "2:3", "3:4", "4:5", "5:4"];
+const maxReferenceImages = 3;
 
 const imageSrc = (absolutePath: string): string => {
   const normalized = absolutePath.replaceAll("\\", "/");
@@ -126,6 +135,20 @@ const parseAverageCost = (costEstimate: string): number => {
 const createEditRunId = (): string => {
   const random = Math.random().toString(36).slice(2, 10);
   return `run_${Date.now().toString(36)}_${random}`;
+};
+
+const createReferenceSlotId = (): string => {
+  const random = Math.random().toString(36).slice(2, 8);
+  return `ref_${Date.now().toString(36)}_${random}`;
+};
+
+const fileToDataUrl = (file: File): Promise<string> => {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => resolve(String(reader.result ?? ""));
+    reader.onerror = () => reject(new Error(`Failed to read ${file.name}`));
+    reader.readAsDataURL(file);
+  });
 };
 
 const deriveStatusHelp = (args: {
@@ -215,8 +238,7 @@ const App = (): JSX.Element => {
   const [batchMode, setBatchMode] = useState(false);
   const [batchCount, setBatchCount] = useState(2);
   const [presetName, setPresetName] = useState("None");
-  const [referenceImage, setReferenceImage] = useState<string | undefined>(undefined);
-  const [referencePreview, setReferencePreview] = useState<string | undefined>(undefined);
+  const [referenceImages, setReferenceImages] = useState<ReferenceImageSlot[]>([]);
   const [isEditMode, setIsEditMode] = useState(false);
   const [isEditStudioOpen, setIsEditStudioOpen] = useState(false);
   const [editSourceImage, setEditSourceImage] = useState<GalleryItem | null>(null);
@@ -251,6 +273,12 @@ const App = (): JSX.Element => {
     () => selectedModels.every((m) => m.input_modalities?.includes("image")),
     [selectedModels]
   );
+  const referenceImagePayloads = useMemo(() => referenceImages.map((item) => item.dataUrl), [referenceImages]);
+  const editSourcePreview = useMemo(
+    () => (isEditMode ? referenceImages[0]?.previewSrc : undefined),
+    [isEditMode, referenceImages]
+  );
+  const canAttachMoreReferences = referenceImages.length < maxReferenceImages;
   const totalExpectedCost = useMemo(() => {
     const perImageTotal = selectedModels.reduce((sum, model) => sum + parseAverageCost(model.cost_estimate), 0);
     const count = batchMode ? Math.max(2, Math.min(4, batchCount)) : 1;
@@ -523,25 +551,84 @@ const App = (): JSX.Element => {
     setStatus(`Applied preset: ${selected.name}`);
   };
 
-  const onReferenceImage = (event: ChangeEvent<HTMLInputElement>): void => {
-    const file = event.target.files?.[0];
-    if (!file) {
-      setReferenceImage(undefined);
-      setReferencePreview(undefined);
+  const onAddReferenceImages = async (event: ChangeEvent<HTMLInputElement>): Promise<void> => {
+    const files = Array.from(event.target.files ?? []);
+    event.target.value = "";
+    if (files.length === 0) {
       return;
     }
-    const reader = new FileReader();
-    reader.onload = () => {
-      const data = String(reader.result ?? "");
-      setReferenceImage(data);
-      setReferencePreview(data);
-    };
-    reader.readAsDataURL(file);
+
+    const freeSlots = Math.max(0, maxReferenceImages - referenceImages.length);
+    if (freeSlots <= 0) {
+      setStatusTone("info");
+      setStatus(`You can attach up to ${maxReferenceImages} images per request.`);
+      return;
+    }
+
+    const accepted = files.slice(0, freeSlots);
+    if (accepted.length < files.length) {
+      setStatusTone("info");
+      setStatus(`Only ${maxReferenceImages} total images are allowed. Extra files were ignored.`);
+    }
+
+    try {
+      const loaded = await Promise.all(
+        accepted.map(async (file) => {
+          const dataUrl = await fileToDataUrl(file);
+          return {
+            id: createReferenceSlotId(),
+            dataUrl,
+            previewSrc: dataUrl,
+            name: file.name
+          } satisfies ReferenceImageSlot;
+        })
+      );
+      setReferenceImages((prev) => [...prev, ...loaded]);
+    } catch (error) {
+      setStatusTone("error");
+      setStatus(`Failed to load one or more images: ${String(error)}`);
+    }
   };
 
-  const clearReferenceImage = (): void => {
-    setReferenceImage(undefined);
-    setReferencePreview(undefined);
+  const onReplaceReferenceImage = async (index: number, event: ChangeEvent<HTMLInputElement>): Promise<void> => {
+    const file = event.target.files?.[0];
+    event.target.value = "";
+    if (!file) {
+      return;
+    }
+
+    const target = referenceImages[index];
+    if (!target || target.locked) {
+      return;
+    }
+
+    try {
+      const dataUrl = await fileToDataUrl(file);
+      setReferenceImages((prev) =>
+        prev.map((item, itemIndex) =>
+          itemIndex === index
+            ? { ...item, dataUrl, previewSrc: dataUrl, name: file.name }
+            : item
+        )
+      );
+    } catch (error) {
+      setStatusTone("error");
+      setStatus(`Failed to replace image: ${String(error)}`);
+    }
+  };
+
+  const removeReferenceImage = (index: number): void => {
+    setReferenceImages((prev) => {
+      const target = prev[index];
+      if (!target || target.locked) {
+        return prev;
+      }
+      return prev.filter((_, itemIndex) => itemIndex !== index);
+    });
+  };
+
+  const clearUserReferenceImages = (): void => {
+    setReferenceImages((prev) => prev.filter((item) => item.locked));
   };
 
   const clearMask = (): void => {
@@ -800,8 +887,16 @@ const App = (): JSX.Element => {
     setIsEditMode(true);
     setEditSourceImage(item);
     setEditRunId(createEditRunId());
-    setReferenceImage(loaded.dataUrl);
-    setReferencePreview(imageSrc(item.path));
+    const sourceDataUrl = loaded.dataUrl as string;
+    setReferenceImages([
+      {
+        id: `source_${item.id}`,
+        dataUrl: sourceDataUrl,
+        previewSrc: imageSrc(item.path),
+        name: item.filename,
+        locked: true
+      }
+    ]);
     const width = item.metadata?.width ?? 1024;
     const height = item.metadata?.height ?? 1024;
     setEditSourceAspectRatio(Math.max(1, width) / Math.max(1, height));
@@ -836,7 +931,7 @@ const App = (): JSX.Element => {
     setIsEditStudioOpen(false);
     maskDrawingRef.current = false;
     maskLastPointRef.current = null;
-    clearReferenceImage();
+    setReferenceImages([]);
     clearMask();
     setStatusTone("info");
     setStatus("Exited edit mode.");
@@ -867,8 +962,20 @@ const App = (): JSX.Element => {
     }
 
     setEditSourceImage(resultItem);
-    setReferenceImage(loaded.dataUrl);
-    setReferencePreview(imageSrc(resultItem.path));
+    const sourceDataUrl = loaded.dataUrl as string;
+    setReferenceImages((prev) => {
+      const userRefs = prev.filter((item) => !item.locked).slice(0, Math.max(0, maxReferenceImages - 1));
+      return [
+        {
+          id: `source_${resultItem.id}`,
+          dataUrl: sourceDataUrl,
+          previewSrc: imageSrc(resultItem.path),
+          name: resultItem.filename,
+          locked: true
+        },
+        ...userRefs
+      ];
+    });
     const width = resultItem.metadata?.width ?? 1024;
     const height = resultItem.metadata?.height ?? 1024;
     setEditSourceAspectRatio(Math.max(1, width) / Math.max(1, height));
@@ -896,7 +1003,7 @@ const App = (): JSX.Element => {
       setStatus("Edit mode requires a source image.");
       return;
     }
-    if (isEditMode && !referenceImage) {
+    if (isEditMode && referenceImagePayloads.length === 0) {
       setStatusTone("error");
       setStatus("Unable to locate source image payload for edit mode.");
       return;
@@ -964,7 +1071,8 @@ const App = (): JSX.Element => {
           aspectRatio,
           imageSize: modelId.toLowerCase().includes("gemini") ? imageSize : undefined,
           seed: useSeed ? seedValue : undefined,
-          referenceImage,
+          referenceImage: referenceImagePayloads[0],
+          referenceImages: referenceImagePayloads.length ? referenceImagePayloads : undefined,
           maskImage: modelMaskEnabled ? maskDataUrl : undefined,
           maskPath: modelMaskEnabled ? currentMaskPath : undefined,
           editMode: isEditMode ? (modelMaskEnabled ? "mask-edit" : "edit") : "generate",
@@ -1051,8 +1159,7 @@ const App = (): JSX.Element => {
       setUseSeed(false);
     }
 
-    setReferenceImage(undefined);
-    setReferencePreview(undefined);
+    clearUserReferenceImages();
 
     setStatusTone("info");
     setStatus("Loaded prompt, style, and advanced controls from selected gallery image.");
@@ -1236,6 +1343,7 @@ const App = (): JSX.Element => {
                   : "Positive Prompt - This tells the model what you want to see. Be concrete and intentional."
               }
             />
+            <small className="muted">When references are attached, call them out as image 1, image 2, and image 3.</small>
           </section>
 
           <section className="no-divider">
@@ -1248,7 +1356,7 @@ const App = (): JSX.Element => {
               placeholder="Negative Prompt - This tells the model what to avoid. Think of it as guardrails for your image."
             />
 
-            <div className={`generate-wrap${busy || !prompt.trim() || (requiresApiKey && !appData.settings.apiKey) || selectedModelIds.length === 0 || (isEditMode && !referenceImage) ? " generate-wrap-disabled" : ""}`}>
+            <div className={`generate-wrap${busy || !prompt.trim() || (requiresApiKey && !appData.settings.apiKey) || selectedModelIds.length === 0 || (isEditMode && referenceImagePayloads.length === 0) ? " generate-wrap-disabled" : ""}`}>
               <button
                 type="button"
                 className="generate"
@@ -1257,7 +1365,7 @@ const App = (): JSX.Element => {
                   !prompt.trim() ||
                   (requiresApiKey && !appData.settings.apiKey) ||
                   selectedModelIds.length === 0 ||
-                  (isEditMode && !referenceImage)
+                  (isEditMode && referenceImagePayloads.length === 0)
                 }
                 onClick={onGenerate}
               >
@@ -1372,26 +1480,71 @@ const App = (): JSX.Element => {
                 ))}
               </select>
 
+              <label>{isEditMode ? "Edit References" : "Image-to-Image References"}</label>
+              <small className="muted">
+                {isEditMode
+                  ? "In Edit Mode, the source image is image 1. Add up to 2 more references (max 3 total)."
+                  : "Upload up to 3 references and refer to them as image 1, image 2, and image 3 in your prompt."}
+              </small>
+              <div className="reference-toolbar">
+                <label className={`ghost reference-add-btn${!canAttachMoreReferences ? " is-disabled" : ""}`}>
+                  Add Image
+                  <input
+                    type="file"
+                    accept="image/png,image/jpeg,image/webp"
+                    multiple
+                    disabled={!canAttachMoreReferences}
+                    onChange={(event) => {
+                      void onAddReferenceImages(event);
+                    }}
+                  />
+                </label>
+                <button
+                  type="button"
+                  className="ghost"
+                  disabled={referenceImages.every((item) => item.locked)}
+                  onClick={clearUserReferenceImages}
+                >
+                  Clear User Images
+                </button>
+                <small className="muted">{referenceImages.length}/{maxReferenceImages}</small>
+              </div>
+              {!supportsImageInput ? <small className="warn">One or more selected models may not support image input.</small> : null}
+              {referenceImages.length ? (
+                <div className="reference-grid">
+                  {referenceImages.map((item, index) => (
+                    <article key={item.id} className="reference-card">
+                      <img className="reference-thumb" src={item.previewSrc} alt={`Reference image ${index + 1}`} />
+                      <div className="reference-meta">
+                        <strong>{`image ${index + 1}`}</strong>
+                        <small title={item.name}>{item.name}</small>
+                      </div>
+                      <div className="reference-actions">
+                        <label className={`ghost reference-replace-btn${item.locked ? " is-disabled" : ""}`}>
+                          Replace
+                          <input
+                            type="file"
+                            accept="image/png,image/jpeg,image/webp"
+                            disabled={item.locked}
+                            onChange={(event) => {
+                              void onReplaceReferenceImage(index, event);
+                            }}
+                          />
+                        </label>
+                        <button type="button" className="ghost" disabled={item.locked} onClick={() => removeReferenceImage(index)}>
+                          Remove
+                        </button>
+                      </div>
+                    </article>
+                  ))}
+                </div>
+              ) : null}
               {isEditMode ? (
                 <>
-                  <label>Edit Source</label>
-                  {referencePreview ? <img className="preview" src={referencePreview} alt="Edit Source" /> : null}
                   <small className="muted">Mask drawing and compare controls live in Edit Studio.</small>
                   <button type="button" className="ghost" onClick={() => setIsEditStudioOpen(true)}>Open Edit Studio</button>
                 </>
-              ) : (
-                <>
-                  <label>Image-to-Image</label>
-                  <input type="file" accept="image/png,image/jpeg,image/webp" onChange={onReferenceImage} />
-                  {!supportsImageInput ? <small className="warn">One or more selected models may not support image input.</small> : null}
-                  {referencePreview ? (
-                    <>
-                      <img className="preview" src={referencePreview} alt="Reference" />
-                      <button type="button" className="ghost" onClick={clearReferenceImage}>Remove Reference</button>
-                    </>
-                  ) : null}
-                </>
-              )}
+              ) : null}
             </div>
           </details>
 
@@ -1576,6 +1729,7 @@ const App = (): JSX.Element => {
                 <ol>
                   <li>Open <strong>Settings</strong> and choose your backend (OpenRouter or Ollama).</li>
                   <li>For OpenRouter, add your API key and save.</li>
+                  <li>Optional: attach up to 3 references and refer to them in prompt as <strong>image 1</strong>, <strong>image 2</strong>, and <strong>image 3</strong>.</li>
                   <li>Select one or more models, write a prompt, and click <strong>Let's Go!</strong>.</li>
                   <li>Click any gallery image to view details, or use the card buttons to edit, reuse settings, or save.</li>
                 </ol>
@@ -1585,6 +1739,7 @@ const App = (): JSX.Element => {
                 <h4>Edit Studio</h4>
                 <ul>
                   <li>Click <strong>Edit</strong> on any gallery image to open Edit Studio.</li>
+                  <li>In Edit Mode, the source is always <strong>image 1</strong>; you can add up to 2 extra references (3 total).</li>
                   <li>Draw a mask with Brush (<code>B</code>), Eraser (<code>E</code>), or Rectangle (<code>R</code>). Adjust size with the slider.</li>
                   <li>Write an edit instruction and click <strong>Edit</strong> to generate.</li>
                   <li>Use <strong>Compare</strong> to drag-compare the original and result side by side.</li>
@@ -1701,7 +1856,7 @@ const App = (): JSX.Element => {
                   <button type="button" className="ghost" onClick={clearMask}>Clear Mask</button>
                 </div>
 
-                {isCompareMode && latestEditResultSrc && referencePreview ? (
+                {isCompareMode && latestEditResultSrc && editSourcePreview ? (
                   <div className="edit-studio-canvas-wrap" style={{ ["--stage-aspect" as string]: `${editSourceAspectRatio}` }}>
                     <div
                       className="compare-stage"
@@ -1715,7 +1870,7 @@ const App = (): JSX.Element => {
                         <img src={latestEditResultSrc} alt="Edited result" className="compare-layer-image" draggable={false} />
                       </div>
                       <div className="compare-before" style={{ clipPath: `inset(0 ${100 - compareValue}% 0 0)` }}>
-                        <img src={referencePreview} alt="Original" className="compare-layer-image" draggable={false} />
+                        <img src={editSourcePreview} alt="Original" className="compare-layer-image" draggable={false} />
                       </div>
                       <div className="compare-divider" style={{ left: `${compareValue}%` }} />
                     </div>
@@ -1727,10 +1882,10 @@ const App = (): JSX.Element => {
                       ["--stage-aspect" as string]: `${editSourceAspectRatio}`
                     }}
                   >
-                    {referencePreview ? (
+                    {editSourcePreview ? (
                       <img
                         className="edit-studio-image"
-                        src={referencePreview}
+                        src={editSourcePreview}
                         alt="Edit source"
                         onLoad={(event) => {
                           const img = event.currentTarget;
@@ -1781,11 +1936,11 @@ const App = (): JSX.Element => {
                   </div>
                 ) : null}
 
-                <div className={`generate-wrap${busy || !prompt.trim() || selectedModelIds.length === 0 || !referenceImage ? " generate-wrap-disabled" : ""}`}>
+                <div className={`generate-wrap${busy || !prompt.trim() || selectedModelIds.length === 0 || referenceImagePayloads.length === 0 ? " generate-wrap-disabled" : ""}`}>
                   <button
                     type="button"
                     className="generate"
-                    disabled={busy || !prompt.trim() || selectedModelIds.length === 0 || !referenceImage}
+                    disabled={busy || !prompt.trim() || selectedModelIds.length === 0 || referenceImagePayloads.length === 0}
                     onClick={onGenerate}
                   >
                     {busy ? "Editing..." : "Edit"}

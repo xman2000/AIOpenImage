@@ -38,16 +38,19 @@ If multiple models are selected, the app submits one request per model and store
 ## 3) Use Image-to-Image
 
 1. Open **Advanced Controls**.
-2. Upload a reference image in **Image-to-Image**.
-3. Write your prompt as an instruction for changes.
-4. Generate as normal.
+2. Upload up to **3 reference images** in **Image-to-Image References**.
+3. Refer to specific inputs in prompt as `image 1`, `image 2`, and `image 3`.
+4. You can remove or replace each reference thumbnail before generating.
+5. Generate as normal.
 
 ## 4) Edit Existing Images (Non-destructive)
 
 1. Open any gallery image and click **Edit**.
 2. The app enters edit mode and opens **Edit Studio**.
-3. All outputs are saved as new images linked to the source image.
-4. Original images remain unchanged.
+3. In edit mode, the source image is always `image 1`.
+4. You can add up to 2 more reference images (3 total including source).
+5. All outputs are saved as new images linked to the source image.
+6. Original images remain unchanged.
 
 ## 5) Edit Studio
 

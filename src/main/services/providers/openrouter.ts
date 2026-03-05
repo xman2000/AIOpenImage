@@ -103,8 +103,20 @@ const formatBytes = (bytes: number): string => {
 };
 
 const buildMessages = (options: GenerationOptions): unknown[] => {
-  if (options.referenceImage) {
+  const referenceImages = (options.referenceImages ?? []).filter(Boolean);
+  const orderedReferences = referenceImages.length
+    ? referenceImages
+    : options.referenceImage
+      ? [options.referenceImage]
+      : [];
+
+  if (orderedReferences.length > 0) {
     const promptParts = [options.prompt.trim()];
+    promptParts.push(
+      orderedReferences.length === 1
+        ? "Reference mapping: image 1 is the uploaded reference image."
+        : `Reference mapping: image 1 through image ${orderedReferences.length} follow the uploaded order in this request.`
+    );
     if (options.editInstruction?.trim()) {
       promptParts.push(`Edit instruction: ${options.editInstruction.trim()}`);
     }
@@ -113,14 +125,16 @@ const buildMessages = (options: GenerationOptions): unknown[] => {
     }
     if (options.maskImage && options.editMode === "mask-edit") {
       promptParts.push(
-        "Use the second image as a mask guide. White indicates areas to change, black indicates areas to preserve."
+        "The final image in this input list is a mask guide. White indicates areas to change, black indicates areas to preserve."
       );
     }
 
     const content: Array<{ type: "text" | "image_url"; text?: string; image_url?: { url: string } }> = [
-      { type: "text", text: promptParts.join("\n\n") },
-      { type: "image_url", image_url: { url: options.referenceImage } }
+      { type: "text", text: promptParts.join("\n\n") }
     ];
+    for (const reference of orderedReferences) {
+      content.push({ type: "image_url", image_url: { url: reference } });
+    }
 
     if (options.maskImage && options.editMode === "mask-edit") {
       content.push({ type: "image_url", image_url: { url: options.maskImage } });
@@ -294,7 +308,7 @@ export const generateImage = async (
     aspectRatio: options.aspectRatio,
     imageSize: options.imageSize,
     seed: options.seed,
-    img2imgMode: Boolean(options.referenceImage),
+    img2imgMode: Boolean((options.referenceImages && options.referenceImages.length > 0) || options.referenceImage),
     editMode: options.editMode,
     parentImageId: options.parentImageId,
     editRunId: options.editRunId,

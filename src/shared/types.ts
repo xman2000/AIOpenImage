@@ -7,6 +7,7 @@ export type GenerationOptions = {
   imageSize?: string;
   seed?: number;
   referenceImage?: string;
+  referenceImages?: string[];
   maskImage?: string;
   maskPath?: string;
   editMode?: "generate" | "edit" | "mask-edit";
