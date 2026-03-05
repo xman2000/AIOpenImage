@@ -1,5 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import type { ChangeEvent, PointerEvent as ReactPointerEvent } from "react";
+import appLogo from "./assets/app-logo.png";
+import appIcon from "./assets/app-icon.png";
 import type {
   AppData,
   GalleryItem,
@@ -23,12 +25,20 @@ type AppInfo = {
   platform: string;
 };
 
+<<<<<<< HEAD
 type ReferenceImageSlot = {
   id: string;
   dataUrl: string;
   previewSrc: string;
   name: string;
   locked?: boolean;
+=======
+type RequestStatus = {
+  id: string;
+  label: string;
+  state: "queued" | "running" | "success" | "failed" | "cancelled";
+  detail?: string;
+>>>>>>> f1bf06457689515b77adac14de9cc94c49173aba
 };
 
 const presets: StylePreset[] = [
@@ -80,11 +90,40 @@ const themes: { value: ThemePreference; label: string }[] = [
 ];
 
 const aspectRatios = ["1:1", "16:9", "9:16", "4:3", "3:2", "21:9", "2:3", "3:4", "4:5", "5:4"];
+<<<<<<< HEAD
 const maxReferenceImages = 3;
+=======
+const galleryThumbnailWidths = [120, 160, 210, 280] as const;
+>>>>>>> f1bf06457689515b77adac14de9cc94c49173aba
 
 const imageSrc = (absolutePath: string): string => {
   const normalized = absolutePath.replaceAll("\\", "/");
-  return encodeURI(`file:///${normalized}`);
+  return encodeURI(`file:///${normalized}`).replaceAll("#", "%23").replaceAll("?", "%3F");
+};
+
+const runWithConcurrency = async <T, R>(
+  items: T[],
+  limit: number,
+  worker: (item: T, index: number) => Promise<R>
+): Promise<R[]> => {
+  if (items.length === 0) {
+    return [];
+  }
+
+  const results = new Array<R>(items.length);
+  let nextIndex = 0;
+  const safeLimit = Math.max(1, Math.min(limit, items.length));
+
+  const runWorker = async (): Promise<void> => {
+    while (nextIndex < items.length) {
+      const current = nextIndex;
+      nextIndex += 1;
+      results[current] = await worker(items[current], current);
+    }
+  };
+
+  await Promise.all(Array.from({ length: safeLimit }, () => runWorker()));
+  return results;
 };
 
 const resolveTheme = (preference: ThemePreference): ThemePreference => {
@@ -198,16 +237,18 @@ const App = (): JSX.Element => {
   const [loadingScreenHidden, setLoadingScreenHidden] = useState(false);
   const [appVisible, setAppVisible] = useState(false);
   const [busy, setBusy] = useState(false);
+  const [isGenerating, setIsGenerating] = useState(false);
   const [status, setStatus] = useState("");
   const [statusTone, setStatusTone] = useState<"idle" | "info" | "success" | "error">("idle");
   const [isSettingsOpen, setIsSettingsOpen] = useState(false);
   const [isAboutOpen, setIsAboutOpen] = useState(false);
   const [isUserGuideOpen, setIsUserGuideOpen] = useState(false);
   const [activeImage, setActiveImage] = useState<GalleryItem | null>(null);
+  const [galleryThumbStop, setGalleryThumbStop] = useState(1);
   const [fullscreenImageSrc, setFullscreenImageSrc] = useState<string | null>(null);
   const [appInfo, setAppInfo] = useState<AppInfo>({
     name: "AI Open Image",
-    version: "0.2.3",
+    version: "0.4.1",
     releaseDate: "Local Build",
     platform: "win32"
   });
@@ -255,6 +296,10 @@ const App = (): JSX.Element => {
   const [maskPath, setMaskPath] = useState<string | undefined>(undefined);
   const [maskDirty, setMaskDirty] = useState(false);
   const [modelWarnings, setModelWarnings] = useState<string[]>([]);
+  const [requestStatuses, setRequestStatuses] = useState<RequestStatus[]>([]);
+  const [isGenPopoverExpanded, setIsGenPopoverExpanded] = useState(false);
+  const [toolPanelWidth, setToolPanelWidth] = useState(380);
+  const [isResizingWorkspace, setIsResizingWorkspace] = useState(false);
   const [activeMenu, setActiveMenu] = useState<string | null>(null);
   const menuBarRef = useRef<HTMLDivElement | null>(null);
   const maskCanvasRef = useRef<HTMLCanvasElement | null>(null);
@@ -263,7 +308,15 @@ const App = (): JSX.Element => {
   const rectStartPointRef = useRef<{ x: number; y: number } | null>(null);
   const rectBaseImageRef = useRef<ImageData | null>(null);
   const compareDraggingRef = useRef(false);
+  const workspaceResizeRef = useRef<{ startX: number; startWidth: number } | null>(null);
   const bootStartedAtRef = useRef<number>(Date.now());
+  const stopGenerationRequestedRef = useRef(false);
+
+  const clampToolPanelWidth = (width: number): number => {
+    const minWidth = 240;
+    const maxWidth = Math.max(minWidth, Math.min(620, window.innerWidth - 260));
+    return Math.max(minWidth, Math.min(maxWidth, Math.round(width)));
+  };
 
   const selectedModels = useMemo(
     () => models.filter((m) => selectedModelIds.includes(m.model_id)),
@@ -281,12 +334,12 @@ const App = (): JSX.Element => {
   const canAttachMoreReferences = referenceImages.length < maxReferenceImages;
   const totalExpectedCost = useMemo(() => {
     const perImageTotal = selectedModels.reduce((sum, model) => sum + parseAverageCost(model.cost_estimate), 0);
-    const count = batchMode ? Math.max(2, Math.min(4, batchCount)) : 1;
+    const count = batchMode ? Math.max(2, Math.min(10, batchCount)) : 1;
     return perImageTotal * count;
   }, [selectedModels, batchMode, batchCount]);
 
   const costBreakdown = useMemo(() => {
-    const count = batchMode ? Math.max(2, Math.min(4, batchCount)) : 1;
+    const count = batchMode ? Math.max(2, Math.min(10, batchCount)) : 1;
     return selectedModels.map((model) => {
       const unit = parseAverageCost(model.cost_estimate);
       return {
@@ -300,6 +353,15 @@ const App = (): JSX.Element => {
   }, [selectedModels, batchMode, batchCount]);
 
   const requiresApiKey = backendInput === "openrouter";
+  const galleryThumbWidth = galleryThumbnailWidths[galleryThumbStop] ?? galleryThumbnailWidths[1];
+  const requestSummary = useMemo(() => {
+    const queued = requestStatuses.filter((item) => item.state === "queued").length;
+    const running = requestStatuses.filter((item) => item.state === "running").length;
+    const success = requestStatuses.filter((item) => item.state === "success").length;
+    const failed = requestStatuses.filter((item) => item.state === "failed").length;
+    const cancelled = requestStatuses.filter((item) => item.state === "cancelled").length;
+    return { queued, running, success, failed, cancelled, total: requestStatuses.length };
+  }, [requestStatuses]);
   const statusHelp = useMemo(
     () =>
       deriveStatusHelp({
@@ -313,24 +375,36 @@ const App = (): JSX.Element => {
   );
 
   useEffect(() => {
+    const delay = (ms: number): Promise<void> => new Promise((resolve) => setTimeout(resolve, ms));
+
     const boot = async (): Promise<void> => {
       try {
-        setLoadingStatusText("Loading workspace...");
+        setLoadingStatusText("Initializing...");
+        await delay(400);
+
+        setLoadingStatusText("Loading settings and workspace...");
         const loadedData = await window.appApi.loadAppData();
+        await delay(300);
 
-        setLoadingStatusText("Loading model catalog...");
-        const loadedModels = await window.appApi.listModels();
-
-        setLoadingStatusText("Loading app info...");
-        const loadedInfo = await window.appApi.getAppInfo();
-
+        setLoadingStatusText("Applying theme...");
         setAppData(loadedData);
-        setAppInfo(loadedInfo);
         setApiKeyInput(loadedData.settings.apiKey ?? "");
         setBackendInput(loadedData.settings.imageBackend ?? "openrouter");
         setOllamaBaseUrlInput(loadedData.settings.ollamaBaseUrl ?? "http://localhost:11434");
         setThemeInput(loadedData.settings.themePreference ?? "system");
         applyTheme(loadedData.settings.themePreference ?? "system");
+        await delay(300);
+
+        setLoadingStatusText("Loading model catalog...");
+        const loadedModels = await window.appApi.listModels();
+        await delay(300);
+
+        setLoadingStatusText("Loading app info...");
+        const loadedInfo = await window.appApi.getAppInfo();
+        setAppInfo(loadedInfo);
+        await delay(300);
+
+        setLoadingStatusText("Preparing gallery...");
         setModels(loadedModels);
         if (loadedModels.length > 0) {
           setSelectedModelIds([loadedModels[0].model_id]);
@@ -340,6 +414,10 @@ const App = (): JSX.Element => {
             `No models available for ${loadedData.settings.imageBackend}. Check your backend settings and try again.`
           );
         }
+        await delay(400);
+
+        setLoadingStatusText(`${loadedModels.length} models loaded. ${loadedData.gallery.length} images in gallery.`);
+        await delay(600);
       } catch (error) {
         setStatusTone("error");
         setStatus(`Startup warning: ${String(error)}`);
@@ -361,8 +439,8 @@ const App = (): JSX.Element => {
     }
     setLoadingStatusText("Ready.");
     const elapsed = Date.now() - bootStartedAtRef.current;
-    const minVisibleMs = 900;
-    const transitionMs = 1500;
+    const minVisibleMs = 3200;
+    const transitionMs = 2000;
     const startDelay = Math.max(0, minVisibleMs - elapsed);
 
     const fadeTimer = window.setTimeout(() => {
@@ -390,6 +468,47 @@ const App = (): JSX.Element => {
     media.addEventListener("change", handler);
     return () => media.removeEventListener("change", handler);
   }, [appData.settings.themePreference]);
+
+  useEffect(() => {
+    const onResize = (): void => {
+      setToolPanelWidth((prev) => clampToolPanelWidth(prev));
+    };
+    window.addEventListener("resize", onResize);
+    return () => window.removeEventListener("resize", onResize);
+  }, []);
+
+  useEffect(() => {
+    const onPointerMove = (event: PointerEvent): void => {
+      if (!workspaceResizeRef.current) {
+        return;
+      }
+      const next = workspaceResizeRef.current.startWidth + (event.clientX - workspaceResizeRef.current.startX);
+      setToolPanelWidth(clampToolPanelWidth(next));
+    };
+
+    const stopResize = (): void => {
+      workspaceResizeRef.current = null;
+      setIsResizingWorkspace(false);
+    };
+
+    window.addEventListener("pointermove", onPointerMove);
+    window.addEventListener("pointerup", stopResize);
+    window.addEventListener("pointercancel", stopResize);
+    return () => {
+      window.removeEventListener("pointermove", onPointerMove);
+      window.removeEventListener("pointerup", stopResize);
+      window.removeEventListener("pointercancel", stopResize);
+    };
+  }, []);
+
+  const onWorkspaceResizeStart = (event: ReactPointerEvent<HTMLDivElement>): void => {
+    if (window.innerWidth <= 980) {
+      return;
+    }
+    workspaceResizeRef.current = { startX: event.clientX, startWidth: toolPanelWidth };
+    setIsResizingWorkspace(true);
+    event.preventDefault();
+  };
 
   useEffect(() => {
     if (!isEditMode || !editSourceImage) {
@@ -995,6 +1114,15 @@ const App = (): JSX.Element => {
   };
 
   const onGenerate = async (): Promise<void> => {
+    if (isGenerating) {
+      if (!stopGenerationRequestedRef.current) {
+        stopGenerationRequestedRef.current = true;
+        setStatusTone("info");
+        setStatus(`Stopping ${isEditMode ? "edit" : "generation"} after active requests complete...`);
+      }
+      return;
+    }
+
     if (!prompt.trim() || selectedModelIds.length === 0) {
       return;
     }
@@ -1010,24 +1138,39 @@ const App = (): JSX.Element => {
     }
 
     setBusy(true);
+    setIsGenerating(true);
+    stopGenerationRequestedRef.current = false;
     setModelWarnings([]);
+    setIsGenPopoverExpanded(false);
     setStatusTone("info");
     setStatus(isEditMode ? "Initializing edit run..." : "Initializing generation...");
 
     try {
-      const safeCount = batchMode ? Math.max(2, Math.min(4, batchCount)) : 1;
+      const concurrencyLimit = 3;
+      const safeCount = batchMode ? Math.max(2, Math.min(10, batchCount)) : 1;
+      const totalRequests = selectedModelIds.length * safeCount;
+      let completedRequests = 0;
+      let currentMaskPath = maskPath;
+      const warnings: string[] = [];
       let successCount = 0;
       let failedCount = 0;
-      const warnings: string[] = [];
-      let currentMaskPath = maskPath;
+      let cancelledCount = 0;
       let latestProducedPath: string | null = null;
 
+      setStatus(
+        `${isEditMode ? "Editing" : "Generating"} ${totalRequests} request(s) with up to ${Math.min(
+          concurrencyLimit,
+          totalRequests
+        )} in parallel...`
+      );
+
+      const runId = isEditMode ? (editRunId ?? createEditRunId()) : undefined;
+      if (isEditMode && !editRunId && runId) {
+        setEditRunId(runId);
+      }
+
       if (isEditMode && maskDataUrl && maskDirty) {
-        const runId = editRunId ?? createEditRunId();
-        if (!editRunId) {
-          setEditRunId(runId);
-        }
-        const savedMask = await window.appApi.saveMask(maskDataUrl, runId);
+        const savedMask = await window.appApi.saveMask(maskDataUrl, runId ?? createEditRunId());
         if (savedMask.ok && savedMask.path) {
           currentMaskPath = savedMask.path;
           setMaskPath(savedMask.path);
@@ -1037,72 +1180,122 @@ const App = (): JSX.Element => {
         }
       }
 
-      for (const modelId of selectedModelIds) {
+      const tasks = selectedModelIds.flatMap((modelId) => {
         const model = models.find((m) => m.model_id === modelId);
         const modelName = model?.name ?? modelId;
+        return Array.from({ length: safeCount }, (_, index) => {
+          const requestNumber = index + 1;
+          return {
+            id: `${modelId}:${requestNumber}`,
+            modelId,
+            modelName,
+            requestNumber,
+            label: batchMode ? `${modelName} #${requestNumber}` : modelName
+          };
+        });
+      });
+
+      setRequestStatuses(tasks.map((task) => ({ id: task.id, label: task.label, state: "queued" as const })));
+
+      await runWithConcurrency(tasks, concurrencyLimit, async (task, taskIndex) => {
+        if (stopGenerationRequestedRef.current) {
+          cancelledCount += 1;
+          completedRequests += 1;
+          setRequestStatuses((prev) =>
+            prev.map((item) => (item.id === task.id ? { ...item, state: "cancelled", detail: "Stopped" } : item))
+          );
+          setStatus(`${isEditMode ? "Editing" : "Generating"}... ${completedRequests}/${totalRequests} complete`);
+          return;
+        }
+
+        if (taskIndex > 0) {
+          await new Promise((resolve) => setTimeout(resolve, taskIndex * 500));
+        }
+
+        if (stopGenerationRequestedRef.current) {
+          cancelledCount += 1;
+          completedRequests += 1;
+          setRequestStatuses((prev) =>
+            prev.map((item) => (item.id === task.id ? { ...item, state: "cancelled", detail: "Stopped" } : item))
+          );
+          setStatus(`${isEditMode ? "Editing" : "Generating"}... ${completedRequests}/${totalRequests} complete`);
+          return;
+        }
+
+        setRequestStatuses((prev) => prev.map((item) => (item.id === task.id ? { ...item, state: "running" } : item)));
+
+        const model = models.find((m) => m.model_id === task.modelId);
         const canImageInput = Boolean(model?.input_modalities?.includes("image"));
         const canMaskEdit = Boolean(model?.supportsMaskEdit);
         const wantsMaskEdit = isEditMode && Boolean(maskDataUrl);
         const modelMaskEnabled = wantsMaskEdit && canMaskEdit;
 
         if (isEditMode && !canImageInput) {
-          warnings.push(`${modelName}: model does not support image input, skipped.`);
-          failedCount += batchMode ? safeCount : 1;
-          continue;
+          warnings.push(`${task.modelName}: model does not support image input, skipped.`);
+          failedCount += 1;
+          completedRequests += 1;
+          setRequestStatuses((prev) =>
+            prev.map((item) => (item.id === task.id ? { ...item, state: "failed", detail: "Image input unsupported" } : item))
+          );
+          setStatus(`${isEditMode ? "Editing" : "Generating"}... ${completedRequests}/${totalRequests} complete`);
+          return;
         }
+
         if (wantsMaskEdit && !canMaskEdit) {
-          warnings.push(`${modelName}: mask edits unsupported, using full-image edit fallback.`);
-        }
-
-        setStatus(
-          `${isEditMode ? "Editing" : "Generating"} with ${modelName}${batchMode ? ` (${safeCount} images)` : ""}...`
-        );
-
-        const runId = isEditMode ? (editRunId ?? createEditRunId()) : undefined;
-        if (isEditMode && !editRunId && runId) {
-          setEditRunId(runId);
+          warnings.push(`${task.modelName}: mask edits unsupported, using full-image edit fallback.`);
         }
 
         const options: GenerationOptions = {
-          model: modelId,
+          model: task.modelId,
           prompt: prompt.trim(),
           negativePrompt: negativePrompt.trim() || undefined,
           stylePreset: presetName !== "None" ? presetName : undefined,
           aspectRatio,
+<<<<<<< HEAD
           imageSize: modelId.toLowerCase().includes("gemini") ? imageSize : undefined,
           seed: useSeed ? seedValue : undefined,
           referenceImage: referenceImagePayloads[0],
           referenceImages: referenceImagePayloads.length ? referenceImagePayloads : undefined,
+=======
+          imageSize: task.modelId.toLowerCase().includes("gemini") ? imageSize : undefined,
+          seed: useSeed ? seedValue + (task.requestNumber - 1) : undefined,
+          referenceImage,
+>>>>>>> f1bf06457689515b77adac14de9cc94c49173aba
           maskImage: modelMaskEnabled ? maskDataUrl : undefined,
           maskPath: modelMaskEnabled ? currentMaskPath : undefined,
           editMode: isEditMode ? (modelMaskEnabled ? "mask-edit" : "edit") : "generate",
           parentImageId: isEditMode ? editSourceImage?.id : undefined,
           editRunId: isEditMode ? runId : undefined,
           editInstruction: isEditMode ? prompt.trim() : undefined,
-          sourceImagePath: isEditMode ? editSourceImage?.path : undefined
+          sourceImagePath: isEditMode ? editSourceImage?.path : undefined,
+          batchMode,
+          batchIndex: batchMode ? task.requestNumber : undefined
         };
 
-        if (batchMode) {
-          const results = await window.appApi.generateBatch(options, safeCount);
-          const successful = results.filter((r) => r.ok);
-          successCount += successful.length;
-          failedCount += results.filter((r) => !r.ok).length;
-          const latest = successful.at(-1)?.image;
-          if (latest?.path) {
-            latestProducedPath = latest.path;
-          }
+        const result = await window.appApi.generateImage(options);
+        completedRequests += 1;
+
+        if (result.ok && result.image) {
+          const generatedImage = result.image;
+          successCount += 1;
+          latestProducedPath = generatedImage.path;
+          setRequestStatuses((prev) =>
+            prev.map((item) => (item.id === task.id ? { ...item, state: "success", detail: "Completed" } : item))
+          );
+          setAppData((prev) => ({
+            ...prev,
+            gallery: [...prev.gallery, generatedImage],
+            totalCost: prev.totalCost + (result.cost ?? 0)
+          }));
         } else {
-          const result = await window.appApi.generateImage(options);
-          if (result.ok) {
-            successCount += 1;
-            if (result.image?.path) {
-              latestProducedPath = result.image.path;
-            }
-          } else {
-            failedCount += 1;
-          }
+          failedCount += 1;
+          setRequestStatuses((prev) =>
+            prev.map((item) => (item.id === task.id ? { ...item, state: "failed", detail: result.error ?? "Failed" } : item))
+          );
         }
-      }
+
+        setStatus(`${isEditMode ? "Editing" : "Generating"}... ${completedRequests}/${totalRequests} complete`);
+      });
 
       setModelWarnings(warnings);
       if (isEditMode && latestProducedPath) {
@@ -1112,9 +1305,25 @@ const App = (): JSX.Element => {
       }
 
       if (failedCount > 0) {
-        setStatusTone("error");
+        if (stopGenerationRequestedRef.current) {
+          setStatusTone("info");
+          setStatus(
+            `${isEditMode ? "Edit run" : "Generation"} stopped: ${successCount} succeeded, ${failedCount} failed, ${cancelledCount} cancelled.${
+              warnings.length ? ` ${warnings.length} warning(s).` : ""
+            }`
+          );
+        } else {
+          setStatusTone("error");
+          setStatus(
+            `${isEditMode ? "Edit run" : "Generation"} completed: ${successCount} succeeded, ${failedCount} failed.${
+              warnings.length ? ` ${warnings.length} warning(s).` : ""
+            }`
+          );
+        }
+      } else if (stopGenerationRequestedRef.current) {
+        setStatusTone("info");
         setStatus(
-          `${isEditMode ? "Edit run" : "Generation"} completed: ${successCount} succeeded, ${failedCount} failed.${
+          `${isEditMode ? "Edit run" : "Generation"} stopped: ${successCount} completed, ${cancelledCount} cancelled.${
             warnings.length ? ` ${warnings.length} warning(s).` : ""
           }`
         );
@@ -1132,6 +1341,8 @@ const App = (): JSX.Element => {
       setStatusTone("error");
       setStatus(`Error: ${String(error)}`);
     } finally {
+      stopGenerationRequestedRef.current = false;
+      setIsGenerating(false);
       setBusy(false);
     }
   };
@@ -1290,9 +1501,12 @@ const App = (): JSX.Element => {
       </div>
       <main className={`app-shell desktop ${appVisible ? "app-shell-visible" : "app-shell-hidden"}`}>
       <header className="desktop-header">
-        <div>
-          <h1>AI Open Image</h1>
-          <p className="muted">Desktop studio for generation, iteration, and gallery export.</p>
+        <div className="desktop-brand">
+          <img src={appIcon} alt="AI Open Image" className="desktop-brand-logo" />
+          <div>
+            <h1>AI Open Image</h1>
+            <p className="muted">Desktop studio for generation, iteration, and gallery export.</p>
+          </div>
         </div>
         <div className="desktop-header-actions">
           <select
@@ -1318,7 +1532,10 @@ const App = (): JSX.Element => {
         </div>
       ) : null}
 
-      <section className="workspace">
+      <section
+        className={`workspace${isResizingWorkspace ? " workspace-resizing" : ""}`}
+        style={{ ["--tool-panel-width" as string]: `${toolPanelWidth}px` }}
+      >
         <aside className="tool-panel">
           <section className="no-divider">
             {isEditMode && editSourceImage ? (
@@ -1356,24 +1573,34 @@ const App = (): JSX.Element => {
               placeholder="Negative Prompt - This tells the model what to avoid. Think of it as guardrails for your image."
             />
 
+<<<<<<< HEAD
             <div className={`generate-wrap${busy || !prompt.trim() || (requiresApiKey && !appData.settings.apiKey) || selectedModelIds.length === 0 || (isEditMode && referenceImagePayloads.length === 0) ? " generate-wrap-disabled" : ""}`}>
+=======
+            <div className={`generate-wrap${isGenerating ? " generate-wrap-stop" : ""}${(!isGenerating && (busy || !prompt.trim() || (requiresApiKey && !appData.settings.apiKey) || selectedModelIds.length === 0 || (isEditMode && !referenceImage))) ? " generate-wrap-disabled" : ""}`}>
+>>>>>>> f1bf06457689515b77adac14de9cc94c49173aba
               <button
                 type="button"
-                className="generate"
+                className={`generate${isGenerating ? " generate-stop" : ""}`}
                 disabled={
+<<<<<<< HEAD
                   busy ||
                   !prompt.trim() ||
                   (requiresApiKey && !appData.settings.apiKey) ||
                   selectedModelIds.length === 0 ||
                   (isEditMode && referenceImagePayloads.length === 0)
+=======
+                  isGenerating
+                    ? false
+                    : busy ||
+                      !prompt.trim() ||
+                      (requiresApiKey && !appData.settings.apiKey) ||
+                      selectedModelIds.length === 0 ||
+                      (isEditMode && !referenceImage)
+>>>>>>> f1bf06457689515b77adac14de9cc94c49173aba
                 }
                 onClick={onGenerate}
               >
-                {busy
-                  ? isEditMode
-                    ? "Editing..."
-                    : "Generating..."
-                  : "Let's Go!"}
+                {isGenerating ? "Stop!" : "Let's Go!"}
               </button>
             </div>
           </section>
@@ -1424,13 +1651,11 @@ const App = (): JSX.Element => {
               </label>
             </div>
             {batchMode ? (
-              <input
-                type="number"
-                min={2}
-                max={4}
-                value={batchCount}
-                onChange={(e) => setBatchCount(Number.parseInt(e.target.value, 10) || 2)}
-              />
+              <select value={batchCount} onChange={(e) => setBatchCount(Number.parseInt(e.target.value, 10) || 2)}>
+                {Array.from({ length: 9 }, (_, index) => index + 2).map((countOption) => (
+                  <option key={countOption} value={countOption}>{countOption}</option>
+                ))}
+              </select>
             ) : null}
           </section>
 
@@ -1565,19 +1790,38 @@ const App = (): JSX.Element => {
           ) : null}
         </aside>
 
+        <div
+          className="workspace-resizer"
+          role="separator"
+          aria-orientation="vertical"
+          aria-label="Resize tool and gallery panels"
+          onPointerDown={onWorkspaceResizeStart}
+        />
+
         <section className="content-panel">
           <div className="toolbar">
             <div>
               <h2>Gallery</h2>
-              <p className="muted">Total cost tracked: ${appData.totalCost.toFixed(6)}</p>
+              <p className="muted">Estimated Total Cost: ${appData.totalCost.toFixed(6)}</p>
             </div>
             <div className="toolbar-actions">
+              <label className="thumb-size-control" title="Gallery thumbnail size">
+                <span>Thumbnail Size</span>
+                <input
+                  type="range"
+                  min={0}
+                  max={3}
+                  step={1}
+                  value={galleryThumbStop}
+                  onChange={(e) => setGalleryThumbStop(Number.parseInt(e.target.value, 10) || 0)}
+                />
+              </label>
               <button type="button" className="ghost" onClick={onClearGallery} disabled={appData.gallery.length === 0}>Clear Gallery</button>
               <button type="button" onClick={onExportZip} disabled={appData.gallery.length === 0}>Export ZIP</button>
             </div>
           </div>
 
-          <div className="gallery-grid">
+          <div className="gallery-grid" style={{ ["--thumb-size" as string]: `${galleryThumbWidth}px` }}>
             {appData.gallery.length === 0 ? <div className="empty">No images yet. Generate one from the tool panel.</div> : null}
             {appData.gallery
               .slice()
@@ -1605,7 +1849,6 @@ const App = (): JSX.Element => {
                     </div>
                     <div className="card-actions">
                       <button type="button" className="ghost" onClick={() => void onStartEdit(item)}>Edit</button>
-                      <button type="button" className="ghost" onClick={() => onReuseImageSettings(item)}>Reuse</button>
                       <button type="button" onClick={() => onSaveImageAs(item)}>Save</button>
                     </div>
                   </div>
@@ -1729,9 +1972,14 @@ const App = (): JSX.Element => {
                 <ol>
                   <li>Open <strong>Settings</strong> and choose your backend (OpenRouter or Ollama).</li>
                   <li>For OpenRouter, add your API key and save.</li>
+<<<<<<< HEAD
                   <li>Optional: attach up to 3 references and refer to them in prompt as <strong>image 1</strong>, <strong>image 2</strong>, and <strong>image 3</strong>.</li>
                   <li>Select one or more models, write a prompt, and click <strong>Let's Go!</strong>.</li>
                   <li>Click any gallery image to view details, or use the card buttons to edit, reuse settings, or save.</li>
+=======
+                  <li>Select one or more models, write a prompt, and click <strong>Let&apos;s Go!</strong>.</li>
+                  <li>Click any gallery image to view details, or use the card buttons to edit or save.</li>
+>>>>>>> f1bf06457689515b77adac14de9cc94c49173aba
                 </ol>
               </section>
 
@@ -1927,7 +2175,7 @@ const App = (): JSX.Element => {
                 />
 
                 <small className="muted">Models selected: {selectedModelIds.length}</small>
-                <small className="muted">Batch: {batchMode ? `${Math.max(2, Math.min(4, batchCount))} per model` : "1 per model"}</small>
+                <small className="muted">Batch: {batchMode ? `${Math.max(2, Math.min(10, batchCount))} per model` : "1 per model"}</small>
                 {modelWarnings.length ? (
                   <div className="warning-list">
                     {modelWarnings.map((warning, index) => (
@@ -2077,6 +2325,26 @@ const App = (): JSX.Element => {
             <span className="gen-popover-title">{isEditMode ? "Editing" : "Generating"}</span>
           </div>
           <p className="gen-popover-status">{status}</p>
+          <small className="gen-popover-status">
+            Queued {requestSummary.queued} · Running {requestSummary.running} · Done {requestSummary.success + requestSummary.failed + requestSummary.cancelled}/{requestSummary.total}
+          </small>
+          <button
+            type="button"
+            className="ghost gen-popover-toggle"
+            onClick={() => setIsGenPopoverExpanded((prev) => !prev)}
+          >
+            {isGenPopoverExpanded ? "Hide Requests" : "Show Requests"}
+          </button>
+          {isGenPopoverExpanded ? (
+            <div className="gen-popover-list" role="list" aria-label="Request statuses">
+              {requestStatuses.map((item) => (
+                <div key={item.id} role="listitem" className={`gen-popover-item gen-popover-item-${item.state}`}>
+                  <span>{item.label}</span>
+                  <small>{item.state}{item.detail ? ` - ${item.detail}` : ""}</small>
+                </div>
+              ))}
+            </div>
+          ) : null}
           <div className="gen-popover-bar-track" aria-hidden="true">
             <div className="gen-popover-bar-fill" />
           </div>
@@ -2094,6 +2362,7 @@ const App = (): JSX.Element => {
           aria-hidden={loadingScreenHidden ? "true" : "false"}
         >
           <div className="loading-content">
+            <img src={appLogo} alt="AI Open Image logo" className="loading-logo" />
             <div className="loading-title">AI Open Image</div>
             <div id="loading-status">{loadingStatusText}</div>
           </div>

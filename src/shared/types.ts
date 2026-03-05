@@ -15,6 +15,8 @@ export type GenerationOptions = {
   editRunId?: string;
   editInstruction?: string;
   sourceImagePath?: string;
+  batchMode?: boolean;
+  batchIndex?: number;
 };
 
 export type ThemePreference =
