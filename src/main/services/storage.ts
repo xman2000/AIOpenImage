@@ -2,6 +2,7 @@ import fs from "node:fs/promises";
 import path from "node:path";
 import crypto from "node:crypto";
 import type { AppData, AppSettings, GalleryItem, ImageBackend, ThemePreference } from "../../shared/types";
+import { decryptSecret, encryptSecret, isEncrypted, isEncryptionAvailable } from "./secrets";
 
 const readJson = async <T>(filePath: string, fallback: T): Promise<T> => {
   try {
@@ -97,8 +98,16 @@ export const getSettings = async (userDataPath: string): Promise<AppSettings> =>
   await ensureDirs(userDataPath);
   const raw = await readJson<Record<string, unknown>>(settingsPath(userDataPath), {});
   const defaults = defaultSettings();
+  // apiKeyEncrypted is the current shape; apiKey is the pre-encryption one that
+  // installs upgrading from an older build still have on disk.
+  const storedKey =
+    typeof raw.apiKeyEncrypted === "string"
+      ? decryptSecret(raw.apiKeyEncrypted)
+      : typeof raw.apiKey === "string"
+        ? raw.apiKey
+        : defaults.apiKey;
   return {
-    apiKey: typeof raw.apiKey === "string" ? raw.apiKey : defaults.apiKey,
+    apiKey: storedKey,
     themePreference: sanitizeTheme(raw.themePreference),
     imageBackend: sanitizeBackend(raw.imageBackend),
     ollamaBaseUrl: sanitizeBaseUrl(raw.ollamaBaseUrl)
@@ -115,8 +124,40 @@ export const saveSettings = async (userDataPath: string, settings: Partial<AppSe
       ollamaBaseUrl:
         typeof settings.ollamaBaseUrl === "string" ? sanitizeBaseUrl(settings.ollamaBaseUrl) : current.ollamaBaseUrl
     };
-    await writeFileAtomic(settingsPath(userDataPath), JSON.stringify(next, null, 2));
+    await writeSettingsFile(userDataPath, next);
     return next;
+  });
+
+/**
+ * Serializes settings with the key encrypted at rest. The plaintext `apiKey`
+ * field is never written, so upgrading an install clears it from disk.
+ */
+const writeSettingsFile = async (userDataPath: string, settings: AppSettings): Promise<void> => {
+  const { apiKey, ...rest } = settings;
+  const onDisk: Record<string, unknown> = { ...rest };
+  if (apiKey) {
+    onDisk.apiKeyEncrypted = encryptSecret(apiKey);
+  }
+  await writeFileAtomic(settingsPath(userDataPath), JSON.stringify(onDisk, null, 2));
+};
+
+/**
+ * Rewrites a settings file still holding a plaintext key so it is encrypted at
+ * rest. Runs once at startup; a no-op when there is nothing to migrate or when
+ * the platform offers no encryption.
+ */
+export const migrateStoredSecrets = async (userDataPath: string): Promise<"migrated" | "skipped"> =>
+  withFileLock(settingsPath(userDataPath), async () => {
+    await ensureDirs(userDataPath);
+    const raw = await readJson<Record<string, unknown>>(settingsPath(userDataPath), {});
+    const legacyKey = typeof raw.apiKey === "string" ? raw.apiKey : "";
+    const alreadyEncrypted = typeof raw.apiKeyEncrypted === "string" && isEncrypted(raw.apiKeyEncrypted);
+    if (!legacyKey || alreadyEncrypted || !isEncryptionAvailable()) {
+      return "skipped";
+    }
+    const current = await getSettings(userDataPath);
+    await writeSettingsFile(userDataPath, { ...current, apiKey: legacyKey });
+    return "migrated";
   });
 
 export const getAppData = async (userDataPath: string): Promise<AppData> => {

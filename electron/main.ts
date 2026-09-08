@@ -10,6 +10,7 @@ import {
   getAppData,
   getSettings,
   saveGeneratedImage,
+  migrateStoredSecrets,
   saveSettings,
   saveThemePreference
 } from "../src/main/services/storage";
@@ -464,6 +465,8 @@ const registerAppProtocol = (): void => {
 
 app.whenReady().then(async () => {
   registerAppProtocol();
+  // Upgrade any settings file still holding a plaintext API key.
+  await migrateStoredSecrets(app.getPath("userData"));
   const initialSettings = await getSettings(app.getPath("userData"));
   applyNativeWindowTheme(initialSettings.themePreference);
   await buildMenu();
