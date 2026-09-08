@@ -1,4 +1,4 @@
-import { app, BrowserWindow, ipcMain, dialog, Menu, shell, nativeTheme, type MenuItemConstructorOptions } from "electron";
+import { app, BrowserWindow, ipcMain, dialog, Menu, protocol, shell, nativeTheme, type MenuItemConstructorOptions } from "electron";
 import path from "node:path";
 import fs from "node:fs/promises";
 import JSZip from "jszip";
@@ -17,6 +17,20 @@ import type { GenerationOptions, ThemePreference } from "../src/shared/types";
 
 let mainWindow: BrowserWindow | null = null;
 const DEV_SERVER_URL = "http://localhost:5173";
+// Gallery images live outside the app bundle, and a renderer served over http://
+// (the dev server) is not allowed to load file:// URLs. Serving them over our own
+// scheme makes dev and packaged builds behave identically.
+const APP_SCHEME = "aoi";
+const APP_HOST = "app";
+const MEDIA_PREFIX = "/media/";
+const APP_URL = `${APP_SCHEME}://${APP_HOST}/index.html`;
+
+protocol.registerSchemesAsPrivileged([
+  {
+    scheme: APP_SCHEME,
+    privileges: { standard: true, secure: true, supportFetchAPI: true, stream: true, corsEnabled: true }
+  }
+]);
 const SHOULD_OPEN_DEVTOOLS = process.env.AI_OPEN_IMAGE_OPEN_DEVTOOLS === "1";
 const DEFAULT_WINDOW_WIDTH = 1320;
 const DEFAULT_WINDOW_HEIGHT = 860;
@@ -34,6 +48,22 @@ const imageMimeByExtension: Record<string, string> = {
   ".jpg": "image/jpeg",
   ".jpeg": "image/jpeg",
   ".webp": "image/webp"
+};
+
+const mimeByExtension: Record<string, string> = {
+  ...imageMimeByExtension,
+  ".html": "text/html",
+  ".js": "text/javascript",
+  ".mjs": "text/javascript",
+  ".css": "text/css",
+  ".json": "application/json",
+  ".svg": "image/svg+xml",
+  ".ico": "image/x-icon",
+  ".gif": "image/gif",
+  ".woff": "font/woff",
+  ".woff2": "font/woff2",
+  ".ttf": "font/ttf",
+  ".map": "application/json"
 };
 
 const availableThemes: ThemePreference[] = [
@@ -376,22 +406,64 @@ const createWindow = async (themePreference: ThemePreference): Promise<void> => 
       if (devServerReachable) {
         await mainWindow.loadURL(DEV_SERVER_URL);
       } else {
-        await mainWindow.loadFile(path.join(app.getAppPath(), "dist", "index.html"));
+        await mainWindow.loadURL(APP_URL);
       }
       if (SHOULD_OPEN_DEVTOOLS) {
         mainWindow.webContents.openDevTools({ mode: "detach" });
       }
       return;
     } catch {
-      await mainWindow.loadFile(path.join(app.getAppPath(), "dist", "index.html"));
+      await mainWindow.loadURL(APP_URL);
       return;
     }
   }
 
-  await mainWindow.loadFile(path.join(app.getAppPath(), "dist", "index.html"));
+  await mainWindow.loadURL(APP_URL);
+};
+
+const serveFile = async (filePath: string, rootDir: string): Promise<Response> => {
+  if (!isPathInside(filePath, rootDir)) {
+    return new Response("Forbidden", { status: 403 });
+  }
+  try {
+    const body = await fs.readFile(filePath);
+    const mime = mimeByExtension[path.extname(filePath).toLowerCase()] ?? "application/octet-stream";
+    return new Response(new Uint8Array(body), {
+      status: 200,
+      headers: { "Content-Type": mime, "Access-Control-Allow-Origin": "*" }
+    });
+  } catch {
+    return new Response("Not found", { status: 404 });
+  }
+};
+
+const registerAppProtocol = (): void => {
+  protocol.handle(APP_SCHEME, async (request) => {
+    try {
+      const { host, pathname } = new URL(request.url);
+      if (host !== APP_HOST) {
+        return new Response("Not found", { status: 404 });
+      }
+      const decoded = decodeURIComponent(pathname);
+
+      // Gallery images and masks live in userData, outside the app bundle.
+      if (decoded.startsWith(MEDIA_PREFIX)) {
+        const root = outputDir();
+        return serveFile(path.join(root, decoded.slice(MEDIA_PREFIX.length)), root);
+      }
+
+      // Everything else is the built renderer bundle.
+      const root = path.join(app.getAppPath(), "dist");
+      const relative = decoded === "/" || decoded === "" ? "index.html" : decoded.replace(/^\/+/, "");
+      return serveFile(path.join(root, relative), root);
+    } catch {
+      return new Response("Not found", { status: 404 });
+    }
+  });
 };
 
 app.whenReady().then(async () => {
+  registerAppProtocol();
   const initialSettings = await getSettings(app.getPath("userData"));
   applyNativeWindowTheme(initialSettings.themePreference);
   await buildMenu();

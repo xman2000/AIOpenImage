@@ -93,8 +93,14 @@ const maxReferenceImages = 3;
 const galleryThumbnailWidths = [120, 160, 210, 280] as const;
 
 const imageSrc = (absolutePath: string): string => {
+  // Gallery files all live under userData/output; the main process serves that
+  // directory over aoi://, which works from both the dev server and file://.
   const normalized = absolutePath.replaceAll("\\", "/");
-  return encodeURI(`file:///${normalized}`).replaceAll("#", "%23").replaceAll("?", "%3F");
+  const marker = "/output/";
+  const at = normalized.lastIndexOf(marker);
+  const relative = at >= 0 ? normalized.slice(at + marker.length) : (normalized.split("/").pop() ?? "");
+  const encoded = relative.split("/").map(encodeURIComponent).join("/");
+  return `aoi://app/media/${encoded}`;
 };
 
 const runWithConcurrency = async <T, R>(
