@@ -49,6 +49,15 @@ const themes: { value: ThemePreference; label: string }[] = [
 ];
 
 const aspectRatios = ["1:1", "16:9", "9:16", "4:3", "3:2", "21:9", "2:3", "3:4", "4:5", "5:4"];
+// The splash covers startup on purpose: the work happens behind the show.
+// Real work is never delayed to fill it -- instead each stage the boot actually
+// completes is held on screen long enough to read, and the splash keeps a floor
+// so the animation has room to breathe even when startup is instant.
+const SPLASH_MIN_VISIBLE_MS = 2600;
+const SPLASH_FADE_MS = 700;
+const SPLASH_STAGE_DWELL_MS = 380;
+const SPLASH_TOTAL_STAGES = 8;
+
 const maxReferenceImages = 3;
 const galleryThumbnailWidths = [120, 160, 210, 280] as const;
 
@@ -186,6 +195,9 @@ const App = (): JSX.Element => {
   const [loadingScreenShown, setLoadingScreenShown] = useState(false);
   const [loadingScreenHidden, setLoadingScreenHidden] = useState(false);
   const [appVisible, setAppVisible] = useState(false);
+  const [splashStagesShown, setSplashStagesShown] = useState(0);
+  // Starts false so the splash cannot dismiss before the narration has run.
+  const [splashNarrationIdle, setSplashNarrationIdle] = useState(false);
   const [busy, setBusy] = useState(false);
   const [isGenerating, setIsGenerating] = useState(false);
   const [status, setStatus] = useState("");
@@ -260,6 +272,27 @@ const App = (): JSX.Element => {
   const workspaceResizeRef = useRef<{ startX: number; startWidth: number } | null>(null);
   const bootStartedAtRef = useRef<number>(0);
   const stopGenerationRequestedRef = useRef(false);
+  const splashQueueRef = useRef<string[]>([]);
+  const bootDoneRef = useRef(false);
+
+  // Startup finishes in milliseconds, far faster than anyone can read. Every
+  // stage the boot really reached is queued, and one is revealed per beat, so
+  // the splash narrates what happened rather than flashing past it. Nothing
+  // here slows the actual work down -- it only paces the telling of it.
+  useEffect(() => {
+    const interval = window.setInterval(() => {
+      const next = splashQueueRef.current.shift();
+      if (next !== undefined) {
+        setLoadingStatusText(next);
+        setSplashStagesShown((count) => count + 1);
+        return;
+      }
+      if (bootDoneRef.current) {
+        setSplashNarrationIdle(true);
+      }
+    }, SPLASH_STAGE_DWELL_MS);
+    return () => window.clearInterval(interval);
+  }, []);
 
   const clampToolPanelWidth = (width: number): number => {
     const minWidth = 240;
@@ -326,24 +359,28 @@ const App = (): JSX.Element => {
   useEffect(() => {
     bootStartedAtRef.current = Date.now();
 
+    const say = (text: string): void => {
+      splashQueueRef.current.push(text);
+    };
+
     const boot = async (): Promise<void> => {
       try {
-        setLoadingStatusText("Initializing...");
-        setLoadingStatusText("Loading settings and workspace...");
+        say("Initializing...");
+        say("Loading settings and workspace...");
         const loadedData = await window.appApi.loadAppData();
-        setLoadingStatusText("Applying theme...");
+        say("Applying theme...");
         setAppData(loadedData);
         setApiKeyInput(loadedData.settings.apiKey ?? "");
         setBackendInput(loadedData.settings.imageBackend ?? "openrouter");
         setOllamaBaseUrlInput(loadedData.settings.ollamaBaseUrl ?? "http://localhost:11434");
         setThemeInput(loadedData.settings.themePreference ?? "system");
         applyTheme(loadedData.settings.themePreference ?? "system");
-        setLoadingStatusText("Loading model catalog...");
+        say("Loading model catalog...");
         const loadedModels = await window.appApi.listModels();
-        setLoadingStatusText("Loading app info...");
+        say("Loading app info...");
         const loadedInfo = await window.appApi.getAppInfo();
         setAppInfo(loadedInfo);
-        setLoadingStatusText("Preparing gallery...");
+        say("Preparing gallery...");
         setModels(loadedModels);
         if (loadedModels.length > 0) {
           setSelectedModelIds([loadedModels[0].model_id]);
@@ -353,11 +390,13 @@ const App = (): JSX.Element => {
             `No models available for ${loadedData.settings.imageBackend}. Check your backend settings and try again.`
           );
         }
-        setLoadingStatusText(`${loadedModels.length} models loaded. ${loadedData.gallery.length} images in gallery.`);
+        say(`${loadedModels.length} models loaded. ${loadedData.gallery.length} images in gallery.`);
+        say("Ready.");
       } catch (error) {
         setStatusTone("error");
         setStatus(`Startup warning: ${String(error)}`);
       } finally {
+        bootDoneRef.current = true;
         setLoading(false);
       }
     };
@@ -373,13 +412,11 @@ const App = (): JSX.Element => {
     if (loading) {
       return;
     }
-    setLoadingStatusText("Ready.");
+    if (!splashNarrationIdle) {
+      return;
+    }
     const elapsed = Date.now() - bootStartedAtRef.current;
-    // Just long enough that a fast start reads as a deliberate splash rather
-    // than a flash of unstyled content.
-    const minVisibleMs = 450;
-    const transitionMs = 260;
-    const startDelay = Math.max(0, minVisibleMs - elapsed);
+    const startDelay = Math.max(0, SPLASH_MIN_VISIBLE_MS - elapsed);
 
     const fadeTimer = window.setTimeout(() => {
       setLoadingScreenHidden(true);
@@ -388,13 +425,13 @@ const App = (): JSX.Element => {
 
     const removeTimer = window.setTimeout(() => {
       setShowLoadingScreen(false);
-    }, startDelay + transitionMs);
+    }, startDelay + SPLASH_FADE_MS);
 
     return () => {
       window.clearTimeout(fadeTimer);
       window.clearTimeout(removeTimer);
     };
-  }, [loading]);
+  }, [loading, splashNarrationIdle]);
 
   useEffect(() => {
     const media = window.matchMedia("(prefers-color-scheme: dark)");
@@ -2231,6 +2268,16 @@ const App = (): JSX.Element => {
             <img src={appLogo} alt="AI Open Image logo" className="loading-logo" />
             <div className="loading-title">AI Open Image</div>
             <div id="loading-status">{loadingStatusText}</div>
+            <div
+              className="loading-progress"
+              role="progressbar"
+              aria-valuemin={0}
+              aria-valuemax={SPLASH_TOTAL_STAGES}
+              aria-valuenow={Math.min(splashStagesShown, SPLASH_TOTAL_STAGES)}
+              style={{ ["--splash-progress" as string]: `${Math.min(1, splashStagesShown / SPLASH_TOTAL_STAGES)}` }}
+            >
+              <div className="loading-progress-bar" />
+            </div>
           </div>
           <div className="loading-footer">
             <div className="loading-oss-thanks">Built with open source tools</div>
