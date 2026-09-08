@@ -198,7 +198,7 @@ const App = (): JSX.Element => {
   const [fullscreenImageSrc, setFullscreenImageSrc] = useState<string | null>(null);
   const [appInfo, setAppInfo] = useState<AppInfo>({
     name: "AI Open Image",
-    version: "0.4.1",
+    version: "",
     releaseDate: "Local Build",
     platform: "win32"
   });
@@ -324,19 +324,13 @@ const App = (): JSX.Element => {
   );
 
   useEffect(() => {
-    const delay = (ms: number): Promise<void> => new Promise((resolve) => setTimeout(resolve, ms));
-
     bootStartedAtRef.current = Date.now();
 
     const boot = async (): Promise<void> => {
       try {
         setLoadingStatusText("Initializing...");
-        await delay(400);
-
         setLoadingStatusText("Loading settings and workspace...");
         const loadedData = await window.appApi.loadAppData();
-        await delay(300);
-
         setLoadingStatusText("Applying theme...");
         setAppData(loadedData);
         setApiKeyInput(loadedData.settings.apiKey ?? "");
@@ -344,17 +338,11 @@ const App = (): JSX.Element => {
         setOllamaBaseUrlInput(loadedData.settings.ollamaBaseUrl ?? "http://localhost:11434");
         setThemeInput(loadedData.settings.themePreference ?? "system");
         applyTheme(loadedData.settings.themePreference ?? "system");
-        await delay(300);
-
         setLoadingStatusText("Loading model catalog...");
         const loadedModels = await window.appApi.listModels();
-        await delay(300);
-
         setLoadingStatusText("Loading app info...");
         const loadedInfo = await window.appApi.getAppInfo();
         setAppInfo(loadedInfo);
-        await delay(300);
-
         setLoadingStatusText("Preparing gallery...");
         setModels(loadedModels);
         if (loadedModels.length > 0) {
@@ -365,10 +353,7 @@ const App = (): JSX.Element => {
             `No models available for ${loadedData.settings.imageBackend}. Check your backend settings and try again.`
           );
         }
-        await delay(400);
-
         setLoadingStatusText(`${loadedModels.length} models loaded. ${loadedData.gallery.length} images in gallery.`);
-        await delay(600);
       } catch (error) {
         setStatusTone("error");
         setStatus(`Startup warning: ${String(error)}`);
@@ -390,8 +375,10 @@ const App = (): JSX.Element => {
     }
     setLoadingStatusText("Ready.");
     const elapsed = Date.now() - bootStartedAtRef.current;
-    const minVisibleMs = 3200;
-    const transitionMs = 2000;
+    // Just long enough that a fast start reads as a deliberate splash rather
+    // than a flash of unstyled content.
+    const minVisibleMs = 450;
+    const transitionMs = 260;
     const startDelay = Math.max(0, minVisibleMs - elapsed);
 
     const fadeTimer = window.setTimeout(() => {

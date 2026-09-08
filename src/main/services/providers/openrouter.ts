@@ -323,31 +323,3 @@ export const generateImage = async (
 
   return { ok: true, image, cost: image.cost };
 };
-
-export const generateImageBatch = async (
-  options: GenerationWithKey,
-  count: number,
-  userDataPath: string,
-  appPath: string
-): Promise<GenerationResult[]> => {
-  const results: GenerationResult[] = new Array(count);
-  let nextIndex = 0;
-  const workerCount = Math.max(1, Math.min(3, count));
-
-  const runWorker = async (): Promise<void> => {
-    while (nextIndex < count) {
-      const i = nextIndex;
-      nextIndex += 1;
-      const seed = typeof options.seed === "number" ? options.seed + i : 42 + i;
-      const result = await generateImage({ ...options, seed }, userDataPath, appPath);
-      if (result.ok && result.image) {
-        result.image.batchMode = true;
-        result.image.batchIndex = i + 1;
-      }
-      results[i] = result;
-    }
-  };
-
-  await Promise.all(Array.from({ length: workerCount }, () => runWorker()));
-  return results;
-};

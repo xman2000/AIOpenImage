@@ -18,8 +18,6 @@ const api = {
   saveSettings: (settings: Partial<AppSettings>): Promise<AppData> => ipcRenderer.invoke("settings:save", settings),
   clearGallery: (): Promise<AppData> => ipcRenderer.invoke("gallery:clear"),
   generateImage: (options: GenerationOptions): Promise<GenerationResult> => ipcRenderer.invoke("image:generate", options),
-  generateBatch: (options: GenerationOptions, count: number): Promise<GenerationResult[]> =>
-    ipcRenderer.invoke("image:generateBatch", options, count),
   listModels: (): Promise<ModelInfo[]> => ipcRenderer.invoke("knowledge:listModels"),
   exportGalleryZip: (): Promise<{ ok: boolean; path?: string; error?: string; warning?: string }> =>
     ipcRenderer.invoke("gallery:exportZip"),

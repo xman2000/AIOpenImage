@@ -34,7 +34,7 @@ Before we go any further I would like to acknowledge Openrouter Image Gen, anoth
   - mask focus with brush, eraser, rectangle tools
   - compare mode with draggable old/new divider
 - **Gallery management**:
-  - searchable visual history
+  - visual history with adjustable thumbnail size
   - save individual images
   - export ZIP archive with metadata
 - **Theming**: system/light/dark + multiple color themes

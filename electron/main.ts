@@ -3,8 +3,8 @@ import path from "node:path";
 import fs from "node:fs/promises";
 import JSZip from "jszip";
 import { loadModels } from "../src/main/services/knowledge";
-import { generateImageBatchWithOllama, generateImageWithOllama, listOllamaModels } from "../src/main/services/providers/ollama";
-import { generateImage, generateImageBatch } from "../src/main/services/providers/openrouter";
+import { generateImageWithOllama, listOllamaModels } from "../src/main/services/providers/ollama";
+import { generateImage } from "../src/main/services/providers/openrouter";
 import {
   clearGallery,
   getAppData,
@@ -561,26 +561,6 @@ ipcMain.handle("image:generate", async (_event, options: GenerationOptions) => {
   }
   await saveGeneratedImage(app.getPath("userData"), generated.image, options.prompt, generated.cost);
   return generated;
-});
-
-ipcMain.handle("image:generateBatch", async (_event, options: GenerationOptions, count: number) => {
-  const settings = (await getAppData(app.getPath("userData"))).settings;
-  let results;
-  if (settings.imageBackend === "ollama") {
-    results = await generateImageBatchWithOllama(options, count, app.getPath("userData"), settings.ollamaBaseUrl);
-  } else {
-    const apiKey = settings.apiKey;
-    if (!apiKey) {
-      return [{ ok: false, error: "No API Key found. Set it in the app first." }];
-    }
-    results = await generateImageBatch({ ...options, apiKey }, count, app.getPath("userData"), app.getAppPath());
-  }
-  for (const result of results) {
-    if (result.ok && result.image) {
-      await saveGeneratedImage(app.getPath("userData"), result.image, options.prompt, result.cost);
-    }
-  }
-  return results;
 });
 
 ipcMain.handle("gallery:saveAs", async (_event, imagePath: string) => {

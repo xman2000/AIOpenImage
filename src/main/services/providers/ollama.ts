@@ -236,31 +236,3 @@ export const generateImageWithOllama = async (
 
   return { ok: true, image, cost: 0 };
 };
-
-export const generateImageBatchWithOllama = async (
-  options: GenerationOptions,
-  count: number,
-  userDataPath: string,
-  baseUrl: string
-): Promise<GenerationResult[]> => {
-  const results: GenerationResult[] = new Array(count);
-  let nextIndex = 0;
-  const workerCount = Math.max(1, Math.min(3, count));
-
-  const runWorker = async (): Promise<void> => {
-    while (nextIndex < count) {
-      const i = nextIndex;
-      nextIndex += 1;
-      const seed = typeof options.seed === "number" ? options.seed + i : undefined;
-      const result = await generateImageWithOllama({ ...options, seed }, userDataPath, baseUrl);
-      if (result.ok && result.image) {
-        result.image.batchMode = true;
-        result.image.batchIndex = i + 1;
-      }
-      results[i] = result;
-    }
-  };
-
-  await Promise.all(Array.from({ length: workerCount }, () => runWorker()));
-  return results;
-};

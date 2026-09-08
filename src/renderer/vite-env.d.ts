@@ -12,7 +12,6 @@ declare global {
       saveSettings: (settings: Partial<AppSettings>) => Promise<AppData>;
       clearGallery: () => Promise<AppData>;
       generateImage: (options: GenerationOptions) => Promise<GenerationResult>;
-      generateBatch: (options: GenerationOptions, count: number) => Promise<GenerationResult[]>;
       listModels: () => Promise<ModelInfo[]>;
       exportGalleryZip: () => Promise<{ ok: boolean; path?: string; error?: string; warning?: string }>;
       saveImageAs: (imagePath: string) => Promise<{ ok: boolean; path?: string; error?: string }>;
