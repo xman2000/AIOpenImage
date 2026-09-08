@@ -1878,7 +1878,8 @@ textarea {
 
 .content-panel {
   display: grid;
-  grid-template-rows: auto auto 1fr;
+  /* Toolbar, then the gallery taking the rest. */
+  grid-template-rows: auto 1fr;
   gap: 12px;
   padding: 12px;
   min-height: 0;
@@ -1927,8 +1928,14 @@ textarea {
   display: grid;
   gap: 10px;
   grid-template-columns: repeat(auto-fill, minmax(var(--thumb-size, 140px), var(--thumb-size, 140px)));
+  /* `auto` tracks are flexible between min- and max-content, so in a pane
+     shorter than the gallery they collapse to fit instead of overflowing --
+     which crushed every card and meant no scrollbar ever appeared. Pinning the
+     rows to max-content makes the content overflow, which is what scrolls. */
+  grid-auto-rows: max-content;
   justify-content: start;
   align-content: start;
+  align-items: start;
 }
 
 .empty {
