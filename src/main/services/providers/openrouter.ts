@@ -305,7 +305,6 @@ export const generateImage = async (
     filename: saved.filename,
     prompt: options.prompt,
     negativePrompt: options.negativePrompt,
-    stylePreset: options.stylePreset,
     model: options.model,
     modelName,
     timestamp,

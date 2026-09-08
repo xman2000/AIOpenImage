@@ -27,7 +27,7 @@ Before we go any further I would like to acknowledge Openrouter Image Gen, anoth
 
 - **Multi-model generation**: select multiple models and generate in one run
 - **Batch mode**: create 2-10 variants per model
-- **Advanced controls**: aspect ratio, image size, style preset, negative prompt, seed
+- **Advanced controls**: aspect ratio, image size, negative prompt, seed
 - **Image-to-image**: reference-image based generation
 - **Edit Studio**:
   - non-destructive image edits

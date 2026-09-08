@@ -11,13 +11,6 @@ import type {
   ThemePreference
 } from "../shared/types";
 
-type StylePreset = {
-  name: string;
-  aspectRatio: string;
-  negativePrompt: string;
-  promptSuffix: string;
-};
-
 type AppInfo = {
   name: string;
   version: string;
@@ -39,39 +32,6 @@ type RequestStatus = {
   state: "queued" | "running" | "success" | "failed" | "cancelled";
   detail?: string;
 };
-
-const presets: StylePreset[] = [
-  {
-    name: "Cinematic Portrait",
-    aspectRatio: "2:3",
-    negativePrompt: "blurry, low quality, distortion, deformed",
-    promptSuffix: "cinematic lighting, dramatic shadows, professional photography, 8k"
-  },
-  {
-    name: "Anime Art",
-    aspectRatio: "16:9",
-    negativePrompt: "photorealistic, 3d render",
-    promptSuffix: "anime style, cel shading, vibrant colors, manga aesthetic"
-  },
-  {
-    name: "Minimal Logo",
-    aspectRatio: "1:1",
-    negativePrompt: "complex, textured, noisy",
-    promptSuffix: "minimalist logo, vector style, clean lines"
-  },
-  {
-    name: "Digital Art",
-    aspectRatio: "16:9",
-    negativePrompt: "photo, realistic",
-    promptSuffix: "digital painting, concept art, rich details"
-  },
-  {
-    name: "Product Shot",
-    aspectRatio: "4:3",
-    negativePrompt: "people, text overlays, watermarks",
-    promptSuffix: "studio lighting, clean backdrop, commercial quality"
-  }
-];
 
 const themes: { value: ThemePreference; label: string }[] = [
   { value: "system", label: "Auto (System)" },
@@ -280,7 +240,6 @@ const App = (): JSX.Element => {
   const [seedValue, setSeedValue] = useState(42);
   const [batchMode, setBatchMode] = useState(false);
   const [batchCount, setBatchCount] = useState(2);
-  const [presetName, setPresetName] = useState("None");
   const [referenceImages, setReferenceImages] = useState<ReferenceImageSlot[]>([]);
   const [isEditMode, setIsEditMode] = useState(false);
   const [isEditStudioOpen, setIsEditStudioOpen] = useState(false);
@@ -660,18 +619,6 @@ const App = (): JSX.Element => {
     setAppData(next);
     setStatusTone("info");
     setStatus(`Theme switched to ${themes.find((t) => t.value === nextTheme)?.label ?? nextTheme}.`);
-  };
-
-  const applyPreset = (name: string): void => {
-    const selected = presets.find((p) => p.name === name);
-    if (!selected) {
-      return;
-    }
-    setAspectRatio(selected.aspectRatio);
-    setNegativePrompt(selected.negativePrompt);
-    setPrompt((prev) => (prev ? `${prev}, ${selected.promptSuffix}` : selected.promptSuffix));
-    setStatusTone("info");
-    setStatus(`Applied preset: ${selected.name}`);
   };
 
   const onAddReferenceImages = async (event: ChangeEvent<HTMLInputElement>): Promise<void> => {
@@ -1253,7 +1200,6 @@ const App = (): JSX.Element => {
           model: task.modelId,
           prompt: prompt.trim(),
           negativePrompt: negativePrompt.trim() || undefined,
-          stylePreset: presetName !== "None" ? presetName : undefined,
           aspectRatio,
           imageSize: task.modelId.toLowerCase().includes("gemini") ? imageSize : undefined,
           seed: useSeed ? seedValue + (task.requestNumber - 1) : undefined,
@@ -1354,7 +1300,6 @@ const App = (): JSX.Element => {
   const onReuseImageSettings = (item: GalleryItem): void => {
     setPrompt(item.prompt ?? "");
     setNegativePrompt(item.negativePrompt ?? "");
-    setPresetName(item.stylePreset ?? "None");
     setAspectRatio(item.aspectRatio ?? "1:1");
 
     if (item.imageSize) {
@@ -1671,25 +1616,6 @@ const App = (): JSX.Element => {
                   <div />
                 )}
               </div>
-
-              <label>Style Preset</label>
-              <select
-                value={presetName}
-                onChange={(e) => {
-                  const nextPreset = e.target.value;
-                  setPresetName(nextPreset);
-                  if (nextPreset !== "None") {
-                    applyPreset(nextPreset);
-                  }
-                }}
-              >
-                <option value="None">None</option>
-                {presets.map((preset) => (
-                  <option key={preset.name} value={preset.name}>
-                    {preset.name}
-                  </option>
-                ))}
-              </select>
 
               <label>{isEditMode ? "Edit References" : "Image-to-Image References"}</label>
               <small className="muted">
@@ -2247,8 +2173,6 @@ const App = (): JSX.Element => {
                   <small>{activeImage.imageSize ?? "Default"}</small>
                   <small>Seed</small>
                   <small>{typeof activeImage.seed === "number" ? activeImage.seed : "None"}</small>
-                  <small>Style Preset</small>
-                  <small>{activeImage.stylePreset ?? "None"}</small>
                   <small>Image-to-Image</small>
                   <small>{activeImage.img2imgMode ? "Yes" : "No"}</small>
                   <small>Edit Mode</small>

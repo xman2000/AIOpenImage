@@ -153,7 +153,6 @@ export const generateImageWithOllama = async (
 
   const combinedPrompt = [
     options.prompt.trim(),
-    options.stylePreset ? `Style: ${options.stylePreset}` : "",
     options.negativePrompt ? `Negative prompt: ${options.negativePrompt.trim()}` : ""
   ]
     .filter(Boolean)
@@ -215,7 +214,6 @@ export const generateImageWithOllama = async (
     filename: saved.filename,
     prompt: options.prompt,
     negativePrompt: options.negativePrompt,
-    stylePreset: options.stylePreset,
     model: options.model,
     modelName: options.model,
     timestamp,

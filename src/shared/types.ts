@@ -2,7 +2,6 @@ export type GenerationOptions = {
   model: string;
   prompt: string;
   negativePrompt?: string;
-  stylePreset?: string;
   aspectRatio?: string;
   imageSize?: string;
   seed?: number;
@@ -74,7 +73,6 @@ export type GalleryItem = {
   filename: string;
   prompt: string;
   negativePrompt?: string;
-  stylePreset?: string;
   model: string;
   modelName: string;
   timestamp: string;

@@ -27,7 +27,6 @@ It supports:
 4. Configure optional controls:
    - Aspect ratio
    - Image size (model dependent)
-   - Style preset
    - Batch generation (2-4 per model)
 5. Click **Let's Go!**.
 
