@@ -26,6 +26,23 @@ type ReferenceImageSlot = {
   locked?: boolean;
 };
 
+/** One model's answer to the shared prompt. Lives only for the current run. */
+type CompareEntry = {
+  id: string;
+  modelId: string;
+  label: string;
+  state: "queued" | "running" | "success" | "failed" | "cancelled";
+  image?: GalleryItem;
+  cost?: number;
+  elapsedMs?: number;
+  detail?: string;
+};
+
+type CompareRun = {
+  prompt: string;
+  entries: CompareEntry[];
+};
+
 type RequestStatus = {
   id: string;
   label: string;
@@ -207,6 +224,9 @@ const App = (): JSX.Element => {
   const [isUserGuideOpen, setIsUserGuideOpen] = useState(false);
   const [activeImage, setActiveImage] = useState<GalleryItem | null>(null);
   const [galleryThumbStop, setGalleryThumbStop] = useState(1);
+  const [contentView, setContentView] = useState<"gallery" | "compare">("gallery");
+  const [compareRun, setCompareRun] = useState<CompareRun | null>(null);
+  const [compareFocusIndex, setCompareFocusIndex] = useState<number | null>(null);
   const [fullscreenImageSrc, setFullscreenImageSrc] = useState<string | null>(null);
   const [appInfo, setAppInfo] = useState<AppInfo>({
     name: "AI Open Image",
@@ -333,6 +353,26 @@ const App = (): JSX.Element => {
       };
     });
   }, [selectedModels, requestsPerModel]);
+
+  const compareEntries = compareRun?.entries ?? [];
+  const compareDone = compareEntries.filter((e) => e.state === "success").length;
+  const focusedEntry = compareFocusIndex === null ? null : (compareEntries[compareFocusIndex] ?? null);
+
+  const stepCompareFocus = (delta: number): void => {
+    if (compareEntries.length === 0) {
+      return;
+    }
+    setCompareFocusIndex((current) => {
+      if (current === null) {
+        return 0;
+      }
+      const next = (current + delta + compareEntries.length) % compareEntries.length;
+      return next;
+    });
+  };
+
+  const formatElapsed = (ms?: number): string => (ms === undefined ? "--" : `${(ms / 1000).toFixed(1)}s`);
+  const formatCost = (cost?: number): string => (cost === undefined ? "--" : `$${cost.toFixed(cost < 0.01 ? 4 : 3)}`);
 
   const requiresApiKey = backendInput === "openrouter";
   const galleryThumbWidth = galleryThumbnailWidths[galleryThumbStop] ?? galleryThumbnailWidths[1];
@@ -576,8 +616,33 @@ const App = (): JSX.Element => {
           setFullscreenImageSrc(null);
           return;
         }
+        if (compareFocusIndex !== null) {
+          setCompareFocusIndex(null);
+          return;
+        }
         if (isEditStudioOpen) {
           setIsEditStudioOpen(false);
+          return;
+        }
+      }
+
+      if (compareFocusIndex !== null && !isTyping) {
+        if (event.key === "ArrowRight" || event.key === "ArrowDown") {
+          event.preventDefault();
+          stepCompareFocus(1);
+          return;
+        }
+        if (event.key === "ArrowLeft" || event.key === "ArrowUp") {
+          event.preventDefault();
+          stepCompareFocus(-1);
+          return;
+        }
+        if (/^[1-9]$/.test(event.key)) {
+          const index = Number.parseInt(event.key, 10) - 1;
+          if (index < compareEntries.length) {
+            event.preventDefault();
+            setCompareFocusIndex(index);
+          }
           return;
         }
       }
@@ -598,7 +663,7 @@ const App = (): JSX.Element => {
     };
     window.addEventListener("keydown", onKeyDown);
     return () => window.removeEventListener("keydown", onKeyDown);
-  }, [fullscreenImageSrc, isEditStudioOpen]);
+  }, [fullscreenImageSrc, isEditStudioOpen, compareFocusIndex, compareEntries.length]);
 
   const onSaveSettings = async (): Promise<void> => {
     const next = await window.appApi.saveSettings({
@@ -1143,12 +1208,33 @@ const App = (): JSX.Element => {
 
       setRequestStatuses(tasks.map((task) => ({ id: task.id, label: task.label, state: "queued" as const })));
 
+      // A comparison is only meaningful when the same prompt goes to more than
+      // one model, so the view opens itself exactly then.
+      setCompareRun({
+        prompt: prompt.trim(),
+        entries: tasks.map((task) => ({
+          id: task.id,
+          modelId: task.modelId,
+          label: task.label,
+          state: "queued" as const
+        }))
+      });
+      setCompareFocusIndex(null);
+      if (!isEditMode && selectedModelIds.length > 1) {
+        setContentView("compare");
+      }
+
       await runWithConcurrency(tasks, concurrencyLimit, async (task, taskIndex) => {
         if (stopGenerationRequestedRef.current) {
           cancelledCount += 1;
           completedRequests += 1;
           setRequestStatuses((prev) =>
             prev.map((item) => (item.id === task.id ? { ...item, state: "cancelled", detail: "Stopped" } : item))
+          );
+          setCompareRun((prev) =>
+            prev
+              ? { ...prev, entries: prev.entries.map((e) => (e.id === task.id ? { ...e, state: "cancelled" } : e)) }
+              : prev
           );
           setStatus(`${isEditMode ? "Editing" : "Generating"}... ${completedRequests}/${totalRequests} complete`);
           return;
@@ -1164,11 +1250,21 @@ const App = (): JSX.Element => {
           setRequestStatuses((prev) =>
             prev.map((item) => (item.id === task.id ? { ...item, state: "cancelled", detail: "Stopped" } : item))
           );
+          setCompareRun((prev) =>
+            prev
+              ? { ...prev, entries: prev.entries.map((e) => (e.id === task.id ? { ...e, state: "cancelled" } : e)) }
+              : prev
+          );
           setStatus(`${isEditMode ? "Editing" : "Generating"}... ${completedRequests}/${totalRequests} complete`);
           return;
         }
 
         setRequestStatuses((prev) => prev.map((item) => (item.id === task.id ? { ...item, state: "running" } : item)));
+        setCompareRun((prev) =>
+          prev
+            ? { ...prev, entries: prev.entries.map((e) => (e.id === task.id ? { ...e, state: "running" } : e)) }
+            : prev
+        );
 
         const model = models.find((m) => m.model_id === task.modelId);
         const canImageInput = Boolean(model?.input_modalities?.includes("image"));
@@ -1211,7 +1307,9 @@ const App = (): JSX.Element => {
           batchIndex: batchMode ? task.requestNumber : undefined
         };
 
+        const startedAt = Date.now();
         const result = await window.appApi.generateImage(options);
+        const elapsedMs = Date.now() - startedAt;
         completedRequests += 1;
 
         if (result.ok && result.image) {
@@ -1226,10 +1324,32 @@ const App = (): JSX.Element => {
             gallery: [...prev.gallery, generatedImage],
             totalCost: prev.totalCost + (result.cost ?? 0)
           }));
+          setCompareRun((prev) =>
+            prev
+              ? {
+                  ...prev,
+                  entries: prev.entries.map((e) =>
+                    e.id === task.id
+                      ? { ...e, state: "success", image: generatedImage, cost: result.cost, elapsedMs }
+                      : e
+                  )
+                }
+              : prev
+          );
         } else {
           failedCount += 1;
           setRequestStatuses((prev) =>
             prev.map((item) => (item.id === task.id ? { ...item, state: "failed", detail: result.error ?? "Failed" } : item))
+          );
+          setCompareRun((prev) =>
+            prev
+              ? {
+                  ...prev,
+                  entries: prev.entries.map((e) =>
+                    e.id === task.id ? { ...e, state: "failed", detail: result.error ?? "Failed", elapsedMs } : e
+                  )
+                }
+              : prev
           );
         }
 
@@ -1711,10 +1831,39 @@ const App = (): JSX.Element => {
         <section className="content-panel">
           <div className="toolbar">
             <div>
-              <h2>Gallery</h2>
-              <p className="muted">Estimated Total Cost: ${appData.totalCost.toFixed(6)}</p>
+              <div className="view-switch" role="tablist" aria-label="Right pane view">
+                <button
+                  type="button"
+                  role="tab"
+                  aria-selected={contentView === "gallery"}
+                  className={contentView === "gallery" ? "view-switch-active" : ""}
+                  onClick={() => setContentView("gallery")}
+                >
+                  Gallery
+                </button>
+                <button
+                  type="button"
+                  role="tab"
+                  aria-selected={contentView === "compare"}
+                  className={contentView === "compare" ? "view-switch-active" : ""}
+                  disabled={compareEntries.length === 0}
+                  title={compareEntries.length === 0 ? "Run a prompt across two or more models to compare" : undefined}
+                  onClick={() => setContentView("compare")}
+                >
+                  Compare{compareEntries.length ? ` (${compareEntries.length})` : ""}
+                </button>
+              </div>
+              <p className="muted">
+                {contentView === "gallery"
+                  ? `Estimated Total Cost: $${appData.totalCost.toFixed(6)}`
+                  : compareRun
+                    ? `${compareDone}/${compareEntries.length} returned \u00b7 ${compareRun.prompt.slice(0, 70)}${compareRun.prompt.length > 70 ? "\u2026" : ""}`
+                    : "No comparison yet"}
+              </p>
             </div>
             <div className="toolbar-actions">
+              {contentView === "gallery" ? (
+                <>
               <label className="thumb-size-control" title="Gallery thumbnail size">
                 <span>Thumbnail Size</span>
                 <input
@@ -1728,9 +1877,54 @@ const App = (): JSX.Element => {
               </label>
               <button type="button" className="ghost" onClick={onClearGallery} disabled={appData.gallery.length === 0}>Clear Gallery</button>
               <button type="button" onClick={onExportZip} disabled={appData.gallery.length === 0}>Export ZIP</button>
+                </>
+              ) : (
+                <small className="muted compare-hint">Click a tile to enlarge &middot; &larr; &rarr; to flip</small>
+              )}
             </div>
           </div>
 
+          {contentView === "compare" ? (
+            <div className="compare-sheet">
+              {compareEntries.map((entry, index) => (
+                <article
+                  key={entry.id}
+                  className={`compare-tile compare-tile-${entry.state}`}
+                  onClick={() => entry.image && setCompareFocusIndex(index)}
+                  role={entry.image ? "button" : undefined}
+                  tabIndex={entry.image ? 0 : undefined}
+                  onKeyDown={(e) => {
+                    if (entry.image && (e.key === "Enter" || e.key === " ")) {
+                      e.preventDefault();
+                      setCompareFocusIndex(index);
+                    }
+                  }}
+                >
+                  <div className="compare-frame">
+                    {entry.image ? (
+                      <img src={imageSrc(entry.image.path)} alt={entry.label} loading="lazy" />
+                    ) : (
+                      <div className="compare-placeholder">
+                        {entry.state === "failed" ? "Failed" : entry.state === "cancelled" ? "Stopped" : entry.state === "running" ? "Generating\u2026" : "Queued"}
+                      </div>
+                    )}
+                  </div>
+                  <div className="compare-meta">
+                    <strong title={entry.label}>{entry.label}</strong>
+                    <div className="compare-stats">
+                      <span>{formatCost(entry.cost)}</span>
+                      <span>{formatElapsed(entry.elapsedMs)}</span>
+                      {entry.image?.metadata?.dimensions ? <span>{entry.image.metadata.dimensions}</span> : null}
+                    </div>
+                    {entry.detail && entry.state === "failed" ? <small className="warn">{entry.detail}</small> : null}
+                  </div>
+                </article>
+              ))}
+              {compareEntries.length === 0 ? (
+                <div className="empty">Select two or more models and generate to compare them here.</div>
+              ) : null}
+            </div>
+          ) : (
           <div className="gallery-grid" style={{ ["--thumb-size" as string]: `${galleryThumbWidth}px` }}>
             {appData.gallery.length === 0 ? <div className="empty">No images yet. Generate one from the tool panel.</div> : null}
             {appData.gallery
@@ -1765,8 +1959,63 @@ const App = (): JSX.Element => {
                 </article>
               ))}
           </div>
+          )}
         </section>
       </section>
+
+      {focusedEntry ? (
+        <div
+          className="compare-focus-backdrop"
+          role="dialog"
+          aria-modal="true"
+          aria-label={`Comparing ${focusedEntry.label}`}
+          onClick={() => setCompareFocusIndex(null)}
+        >
+          <div className="compare-focus" onClick={(e) => e.stopPropagation()}>
+            <header className="compare-focus-header">
+              <div>
+                <strong>{focusedEntry.label}</strong>
+                <small className="muted">
+                  {formatCost(focusedEntry.cost)} &middot; {formatElapsed(focusedEntry.elapsedMs)}
+                  {focusedEntry.image?.metadata?.dimensions ? ` \u00b7 ${focusedEntry.image.metadata.dimensions}` : ""}
+                </small>
+              </div>
+              <div className="compare-focus-actions">
+                <small className="muted">{(compareFocusIndex ?? 0) + 1} of {compareEntries.length}</small>
+                <button type="button" className="ghost" onClick={() => setCompareFocusIndex(null)}>Close</button>
+              </div>
+            </header>
+
+            {/* One fixed rectangle for every candidate: the image swaps, the frame
+                never moves, so differences register instead of the layout shifting. */}
+            <div className="compare-focus-stage">
+              <button type="button" className="compare-nav compare-nav-prev" onClick={() => stepCompareFocus(-1)} aria-label="Previous model">&#8249;</button>
+              {focusedEntry.image ? (
+                <img src={imageSrc(focusedEntry.image.path)} alt={focusedEntry.label} />
+              ) : (
+                <div className="compare-placeholder">{focusedEntry.detail ?? focusedEntry.state}</div>
+              )}
+              <button type="button" className="compare-nav compare-nav-next" onClick={() => stepCompareFocus(1)} aria-label="Next model">&#8250;</button>
+            </div>
+
+            <div className="compare-focus-strip">
+              {compareEntries.map((entry, index) => (
+                <button
+                  key={entry.id}
+                  type="button"
+                  className={`compare-chip${index === compareFocusIndex ? " compare-chip-active" : ""}`}
+                  onClick={() => setCompareFocusIndex(index)}
+                  title={`${entry.label} \u00b7 ${formatCost(entry.cost)} \u00b7 ${formatElapsed(entry.elapsedMs)}`}
+                >
+                  <span className="compare-chip-index">{index + 1}</span>
+                  <span className="compare-chip-label">{entry.label}</span>
+                </button>
+              ))}
+            </div>
+            <small className="muted compare-focus-hint">&larr; &rarr; or 1&ndash;9 to flip &middot; Esc to close</small>
+          </div>
+        </div>
+      ) : null}
 
       {isSettingsOpen ? (
         <div className="modal-backdrop" role="dialog" aria-modal="true" aria-label="Settings">

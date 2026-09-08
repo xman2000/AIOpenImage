@@ -2445,3 +2445,255 @@ textarea {
     grid-template-columns: 1fr;
   }
 }
+
+/* ---------- Compare mode ----------
+   One prompt, several models, judged side by side. Tiles are identical in size
+   and the images are contained rather than cropped, so differences in framing
+   and aspect are part of what you are comparing. */
+
+.view-switch {
+  display: inline-flex;
+  gap: 2px;
+  padding: 2px;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  background: var(--bg-panel);
+}
+
+.view-switch button {
+  padding: 5px 12px;
+  border: 0;
+  border-radius: 8px;
+  background: transparent;
+  color: var(--muted);
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.view-switch button:hover:not(:disabled) {
+  color: var(--ink);
+}
+
+.view-switch button:disabled {
+  opacity: 0.45;
+  cursor: default;
+}
+
+.view-switch .view-switch-active {
+  background: var(--bg-elevated);
+  color: var(--ink);
+  box-shadow: 0 1px 0 rgba(0, 0, 0, 0.25);
+}
+
+.compare-hint {
+  white-space: nowrap;
+}
+
+.compare-sheet {
+  min-height: 0;
+  overflow-y: auto;
+  display: grid;
+  gap: 12px;
+  /* Equal columns so every candidate gets the same area -- the whole point. */
+  grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+  grid-auto-rows: max-content;
+  align-content: start;
+}
+
+.compare-tile {
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  background: var(--bg-panel);
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+}
+
+.compare-tile[role="button"] {
+  cursor: zoom-in;
+}
+
+.compare-tile[role="button"]:hover {
+  border-color: var(--accent);
+}
+
+.compare-tile-failed {
+  border-color: color-mix(in srgb, var(--danger, #ff6b6b) 55%, var(--line));
+}
+
+.compare-frame {
+  aspect-ratio: 1 / 1;
+  display: grid;
+  place-items: center;
+  background: var(--bg);
+  overflow: hidden;
+}
+
+.compare-frame img {
+  width: 100%;
+  height: 100%;
+  /* contain, never cover: cropping would hide the composition differences. */
+  object-fit: contain;
+}
+
+.compare-placeholder {
+  font-size: 12px;
+  color: var(--muted);
+  padding: 12px;
+  text-align: center;
+}
+
+.compare-meta {
+  padding: 8px 10px;
+  display: grid;
+  gap: 4px;
+}
+
+.compare-meta strong {
+  font-size: 12px;
+  line-height: 1.3;
+  /* Two lines are always reserved: uneven tiles would make the comparison
+     itself uneven. */
+  min-height: 2.6em;
+  overflow: hidden;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+}
+
+.compare-stats {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  font-size: 11px;
+  color: var(--muted);
+  font-variant-numeric: tabular-nums;
+}
+
+.compare-focus-backdrop {
+  position: fixed;
+  top: 36px;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background: rgba(0, 0, 0, 0.62);
+  display: grid;
+  place-items: center;
+  z-index: 120;
+  padding: 16px;
+}
+
+.compare-focus {
+  width: min(1100px, 96vw);
+  max-height: calc(100vh - 92px);
+  display: grid;
+  grid-template-rows: auto 1fr auto auto;
+  gap: 10px;
+  padding: 12px;
+  border: 1px solid var(--line);
+  border-radius: 14px;
+  background: var(--bg-elevated);
+}
+
+.compare-focus-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.compare-focus-header strong {
+  display: block;
+  font-size: 14px;
+}
+
+.compare-focus-actions {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  white-space: nowrap;
+}
+
+/* The stage keeps one fixed rectangle for every candidate. */
+.compare-focus-stage {
+  position: relative;
+  min-height: 0;
+  display: grid;
+  place-items: center;
+  background: var(--bg);
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  overflow: hidden;
+}
+
+.compare-focus-stage img {
+  max-width: 100%;
+  max-height: 100%;
+  object-fit: contain;
+}
+
+.compare-nav {
+  position: absolute;
+  top: 50%;
+  transform: translateY(-50%);
+  width: 34px;
+  height: 52px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: color-mix(in srgb, var(--bg-elevated) 78%, transparent);
+  color: var(--ink);
+  font-size: 22px;
+  line-height: 1;
+  cursor: pointer;
+}
+
+.compare-nav-prev { left: 8px; }
+.compare-nav-next { right: 8px; }
+.compare-nav:hover { border-color: var(--accent); }
+
+.compare-focus-strip {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.compare-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  max-width: 220px;
+  padding: 4px 10px 4px 6px;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  background: var(--bg-panel);
+  color: var(--muted);
+  font-size: 11px;
+  cursor: pointer;
+}
+
+.compare-chip-active {
+  color: var(--ink);
+  border-color: var(--accent);
+  background: var(--bg-elevated);
+}
+
+.compare-chip-index {
+  display: grid;
+  place-items: center;
+  width: 16px;
+  height: 16px;
+  border-radius: 50%;
+  background: var(--bg);
+  font-variant-numeric: tabular-nums;
+}
+
+.compare-chip-label {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.compare-focus-hint {
+  text-align: center;
+}
