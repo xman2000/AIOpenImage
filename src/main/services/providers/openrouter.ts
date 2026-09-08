@@ -313,13 +313,9 @@ export const generateImage = async (
     aspectRatio: options.aspectRatio,
     imageSize: options.imageSize,
     seed: options.seed,
-<<<<<<< HEAD
-    img2imgMode: Boolean((options.referenceImages && options.referenceImages.length > 0) || options.referenceImage),
-=======
     batchMode: options.batchMode,
     batchIndex: options.batchIndex,
-    img2imgMode: Boolean(options.referenceImage),
->>>>>>> f1bf06457689515b77adac14de9cc94c49173aba
+    img2imgMode: Boolean((options.referenceImages && options.referenceImages.length > 0) || options.referenceImage),
     editMode: options.editMode,
     parentImageId: options.parentImageId,
     editRunId: options.editRunId,

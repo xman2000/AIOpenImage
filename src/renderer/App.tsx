@@ -25,20 +25,19 @@ type AppInfo = {
   platform: string;
 };
 
-<<<<<<< HEAD
 type ReferenceImageSlot = {
   id: string;
   dataUrl: string;
   previewSrc: string;
   name: string;
   locked?: boolean;
-=======
+};
+
 type RequestStatus = {
   id: string;
   label: string;
   state: "queued" | "running" | "success" | "failed" | "cancelled";
   detail?: string;
->>>>>>> f1bf06457689515b77adac14de9cc94c49173aba
 };
 
 const presets: StylePreset[] = [
@@ -90,11 +89,8 @@ const themes: { value: ThemePreference; label: string }[] = [
 ];
 
 const aspectRatios = ["1:1", "16:9", "9:16", "4:3", "3:2", "21:9", "2:3", "3:4", "4:5", "5:4"];
-<<<<<<< HEAD
 const maxReferenceImages = 3;
-=======
 const galleryThumbnailWidths = [120, 160, 210, 280] as const;
->>>>>>> f1bf06457689515b77adac14de9cc94c49173aba
 
 const imageSrc = (absolutePath: string): string => {
   const normalized = absolutePath.replaceAll("\\", "/");
@@ -1251,16 +1247,10 @@ const App = (): JSX.Element => {
           negativePrompt: negativePrompt.trim() || undefined,
           stylePreset: presetName !== "None" ? presetName : undefined,
           aspectRatio,
-<<<<<<< HEAD
-          imageSize: modelId.toLowerCase().includes("gemini") ? imageSize : undefined,
-          seed: useSeed ? seedValue : undefined,
-          referenceImage: referenceImagePayloads[0],
-          referenceImages: referenceImagePayloads.length ? referenceImagePayloads : undefined,
-=======
           imageSize: task.modelId.toLowerCase().includes("gemini") ? imageSize : undefined,
           seed: useSeed ? seedValue + (task.requestNumber - 1) : undefined,
-          referenceImage,
->>>>>>> f1bf06457689515b77adac14de9cc94c49173aba
+          referenceImage: referenceImagePayloads[0],
+          referenceImages: referenceImagePayloads.length ? referenceImagePayloads : undefined,
           maskImage: modelMaskEnabled ? maskDataUrl : undefined,
           maskPath: modelMaskEnabled ? currentMaskPath : undefined,
           editMode: isEditMode ? (modelMaskEnabled ? "mask-edit" : "edit") : "generate",
@@ -1573,30 +1563,18 @@ const App = (): JSX.Element => {
               placeholder="Negative Prompt - This tells the model what to avoid. Think of it as guardrails for your image."
             />
 
-<<<<<<< HEAD
-            <div className={`generate-wrap${busy || !prompt.trim() || (requiresApiKey && !appData.settings.apiKey) || selectedModelIds.length === 0 || (isEditMode && referenceImagePayloads.length === 0) ? " generate-wrap-disabled" : ""}`}>
-=======
-            <div className={`generate-wrap${isGenerating ? " generate-wrap-stop" : ""}${(!isGenerating && (busy || !prompt.trim() || (requiresApiKey && !appData.settings.apiKey) || selectedModelIds.length === 0 || (isEditMode && !referenceImage))) ? " generate-wrap-disabled" : ""}`}>
->>>>>>> f1bf06457689515b77adac14de9cc94c49173aba
+            <div className={`generate-wrap${isGenerating ? " generate-wrap-stop" : ""}${(!isGenerating && (busy || !prompt.trim() || (requiresApiKey && !appData.settings.apiKey) || selectedModelIds.length === 0 || (isEditMode && referenceImagePayloads.length === 0))) ? " generate-wrap-disabled" : ""}`}>
               <button
                 type="button"
                 className={`generate${isGenerating ? " generate-stop" : ""}`}
                 disabled={
-<<<<<<< HEAD
-                  busy ||
-                  !prompt.trim() ||
-                  (requiresApiKey && !appData.settings.apiKey) ||
-                  selectedModelIds.length === 0 ||
-                  (isEditMode && referenceImagePayloads.length === 0)
-=======
                   isGenerating
                     ? false
                     : busy ||
                       !prompt.trim() ||
                       (requiresApiKey && !appData.settings.apiKey) ||
                       selectedModelIds.length === 0 ||
-                      (isEditMode && !referenceImage)
->>>>>>> f1bf06457689515b77adac14de9cc94c49173aba
+                      (isEditMode && referenceImagePayloads.length === 0)
                 }
                 onClick={onGenerate}
               >
@@ -1972,14 +1950,9 @@ const App = (): JSX.Element => {
                 <ol>
                   <li>Open <strong>Settings</strong> and choose your backend (OpenRouter or Ollama).</li>
                   <li>For OpenRouter, add your API key and save.</li>
-<<<<<<< HEAD
                   <li>Optional: attach up to 3 references and refer to them in prompt as <strong>image 1</strong>, <strong>image 2</strong>, and <strong>image 3</strong>.</li>
-                  <li>Select one or more models, write a prompt, and click <strong>Let's Go!</strong>.</li>
-                  <li>Click any gallery image to view details, or use the card buttons to edit, reuse settings, or save.</li>
-=======
                   <li>Select one or more models, write a prompt, and click <strong>Let&apos;s Go!</strong>.</li>
-                  <li>Click any gallery image to view details, or use the card buttons to edit or save.</li>
->>>>>>> f1bf06457689515b77adac14de9cc94c49173aba
+                  <li>Click any gallery image to view details, or use the card buttons to edit, reuse settings, or save.</li>
                 </ol>
               </section>
 

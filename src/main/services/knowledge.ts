@@ -37,8 +37,13 @@ const normalizeModel = (raw: Record<string, unknown>): ModelInfo => {
 
 const loadLocalModels = async (appPath: string): Promise<ModelInfo[]> => {
   const modelsDir = path.join(appPath, "knowledge", "models");
-  const entries = await fs.readdir(modelsDir, { withFileTypes: true });
-  const files = entries.filter((d) => d.isFile() && d.name.endsWith(".yaml")).map((d) => d.name).sort();
+  let files: string[];
+  try {
+    const entries = await fs.readdir(modelsDir, { withFileTypes: true });
+    files = entries.filter((d) => d.isFile() && d.name.endsWith(".yaml")).map((d) => d.name).sort();
+  } catch {
+    return [];
+  }
 
   const models: ModelInfo[] = [];
   for (const file of files) {

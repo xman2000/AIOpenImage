@@ -461,9 +461,9 @@ ipcMain.handle("knowledge:listModels", async () => {
   try {
     const settings = await getSettings(app.getPath("userData"));
     if (settings.imageBackend === "ollama") {
-      return listOllamaModels(settings.ollamaBaseUrl);
+      return await listOllamaModels(settings.ollamaBaseUrl);
     }
-    return loadModels(app.getAppPath());
+    return await loadModels(app.getAppPath());
   } catch {
     return [];
   }
