@@ -293,14 +293,14 @@ const App = (): JSX.Element => {
     [isEditMode, referenceImages]
   );
   const canAttachMoreReferences = referenceImages.length < maxReferenceImages;
+  const requestsPerModel = batchMode && !isEditMode ? Math.max(2, Math.min(10, batchCount)) : 1;
   const totalExpectedCost = useMemo(() => {
     const perImageTotal = selectedModels.reduce((sum, model) => sum + parseAverageCost(model.cost_estimate), 0);
-    const count = batchMode ? Math.max(2, Math.min(10, batchCount)) : 1;
-    return perImageTotal * count;
-  }, [selectedModels, batchMode, batchCount]);
+    return perImageTotal * requestsPerModel;
+  }, [selectedModels, requestsPerModel]);
 
   const costBreakdown = useMemo(() => {
-    const count = batchMode ? Math.max(2, Math.min(10, batchCount)) : 1;
+    const count = requestsPerModel;
     return selectedModels.map((model) => {
       const unit = parseAverageCost(model.cost_estimate);
       return {
@@ -311,7 +311,7 @@ const App = (): JSX.Element => {
         subtotal: unit * count
       };
     });
-  }, [selectedModels, batchMode, batchCount]);
+  }, [selectedModels, requestsPerModel]);
 
   const requiresApiKey = backendInput === "openrouter";
   const galleryThumbWidth = galleryThumbnailWidths[galleryThumbStop] ?? galleryThumbnailWidths[1];
@@ -1098,7 +1098,7 @@ const App = (): JSX.Element => {
 
     try {
       const concurrencyLimit = 3;
-      const safeCount = batchMode ? Math.max(2, Math.min(10, batchCount)) : 1;
+      const safeCount = requestsPerModel;
       const totalRequests = selectedModelIds.length * safeCount;
       let completedRequests = 0;
       let currentMaskPath = maskPath;
@@ -1106,7 +1106,6 @@ const App = (): JSX.Element => {
       let successCount = 0;
       let failedCount = 0;
       let cancelledCount = 0;
-      let latestProducedPath: string | null = null;
 
       setStatus(
         `${isEditMode ? "Editing" : "Generating"} ${totalRequests} request(s) with up to ${Math.min(
@@ -1145,6 +1144,8 @@ const App = (): JSX.Element => {
           };
         });
       });
+
+      const producedPaths: (string | null)[] = new Array(tasks.length).fill(null);
 
       setRequestStatuses(tasks.map((task) => ({ id: task.id, label: task.label, state: "queued" as const })));
 
@@ -1222,7 +1223,7 @@ const App = (): JSX.Element => {
         if (result.ok && result.image) {
           const generatedImage = result.image;
           successCount += 1;
-          latestProducedPath = generatedImage.path;
+          producedPaths[taskIndex] = generatedImage.path;
           setRequestStatuses((prev) =>
             prev.map((item) => (item.id === task.id ? { ...item, state: "success", detail: "Completed" } : item))
           );
@@ -1242,9 +1243,12 @@ const App = (): JSX.Element => {
       });
 
       setModelWarnings(warnings);
-      if (isEditMode && latestProducedPath) {
-        setLatestEditResultSrc(imageSrc(latestProducedPath));
-        setLatestEditResultPath(latestProducedPath);
+      // Deterministic: the first result in task order, not whichever worker
+      // happened to finish last.
+      const firstProducedPath = producedPaths.find((item): item is string => Boolean(item)) ?? null;
+      if (isEditMode && firstProducedPath) {
+        setLatestEditResultSrc(imageSrc(firstProducedPath));
+        setLatestEditResultPath(firstProducedPath);
         setIsCompareMode(true);
       }
 
@@ -2082,7 +2086,7 @@ const App = (): JSX.Element => {
                 />
 
                 <small className="muted">Models selected: {selectedModelIds.length}</small>
-                <small className="muted">Batch: {batchMode ? `${Math.max(2, Math.min(10, batchCount))} per model` : "1 per model"}</small>
+                <small className="muted">Edits: 1 per selected model</small>
                 {modelWarnings.length ? (
                   <div className="warning-list">
                     {modelWarnings.map((warning, index) => (
