@@ -733,13 +733,15 @@ const App = (): JSX.Element => {
     exportCtx.drawImage(canvas, 0, 0);
     const imageData = exportCtx.getImageData(0, 0, exportCanvas.width, exportCanvas.height);
     const pixels = imageData.data;
+    // The request tells the model white means change and black means preserve,
+    // so the exported buffer has to be exactly that: opaque white where painted,
+    // opaque black everywhere else. Anything left translucent is not a stencil.
     for (let index = 0; index < pixels.length; index += 4) {
-      const alpha = pixels[index + 3];
-      if (alpha > 0) {
-        pixels[index] = 255;
-        pixels[index + 1] = 255;
-        pixels[index + 2] = 255;
-      }
+      const value = pixels[index + 3] > 0 ? 255 : 0;
+      pixels[index] = value;
+      pixels[index + 1] = value;
+      pixels[index + 2] = value;
+      pixels[index + 3] = 255;
     }
     exportCtx.putImageData(imageData, 0, 0);
     setMaskDataUrl(exportCanvas.toDataURL("image/png"));
@@ -772,42 +774,20 @@ const App = (): JSX.Element => {
     }
 
     ctx.save();
-    const width = Math.max(1, maskBrushSize);
     ctx.lineCap = "round";
     ctx.lineJoin = "round";
-    ctx.lineWidth = width;
+    ctx.lineWidth = Math.max(1, maskBrushSize);
     if (maskTool === "erase") {
       ctx.globalCompositeOperation = "destination-out";
-      ctx.strokeStyle = "rgba(0,0,0,1)";
-      ctx.beginPath();
-      ctx.moveTo(from.x, from.y);
-      ctx.lineTo(to.x, to.y);
-      ctx.stroke();
+      ctx.strokeStyle = "rgb(0, 0, 0)";
     } else {
       ctx.globalCompositeOperation = "source-over";
-      if (showMaskTint) {
-        ctx.strokeStyle = "rgba(255, 64, 64, 0.44)";
-        ctx.lineWidth = width;
-        ctx.beginPath();
-        ctx.moveTo(from.x, from.y);
-        ctx.lineTo(to.x, to.y);
-        ctx.stroke();
-      } else {
-        ctx.strokeStyle = "rgba(0,0,0,0.45)";
-        ctx.lineWidth = width + 2;
-        ctx.beginPath();
-        ctx.moveTo(from.x, from.y);
-        ctx.lineTo(to.x, to.y);
-        ctx.stroke();
-
-        ctx.strokeStyle = "rgba(255,255,255,0.49)";
-        ctx.lineWidth = width;
-        ctx.beginPath();
-        ctx.moveTo(from.x, from.y);
-        ctx.lineTo(to.x, to.y);
-        ctx.stroke();
-      }
+      ctx.strokeStyle = showMaskTint ? "rgb(255, 64, 64)" : "rgb(255, 255, 255)";
     }
+    ctx.beginPath();
+    ctx.moveTo(from.x, from.y);
+    ctx.lineTo(to.x, to.y);
+    ctx.stroke();
     ctx.restore();
   };
 
@@ -827,7 +807,6 @@ const App = (): JSX.Element => {
       }
     } else {
       drawMaskStroke(point, point);
-      updateMaskData();
     }
   };
 
@@ -855,8 +834,8 @@ const App = (): JSX.Element => {
       const height = Math.abs(point.y - start.y);
       ctx.save();
       ctx.globalCompositeOperation = "source-over";
-      ctx.fillStyle = showMaskTint ? "rgba(255, 64, 64, 0.16)" : "rgba(255,255,255,0.19)";
-      ctx.strokeStyle = showMaskTint ? "rgba(255, 96, 96, 0.48)" : "rgba(255,255,255,0.45)";
+      ctx.fillStyle = showMaskTint ? "rgb(255, 64, 64)" : "rgb(255, 255, 255)";
+      ctx.strokeStyle = showMaskTint ? "rgb(255, 96, 96)" : "rgb(255, 255, 255)";
       ctx.lineWidth = 2;
       ctx.fillRect(x, y, width, height);
       ctx.strokeRect(x, y, width, height);
@@ -865,7 +844,6 @@ const App = (): JSX.Element => {
     }
     drawMaskStroke(last, point);
     maskLastPointRef.current = point;
-    updateMaskData();
   };
 
   const onMaskPointerUp = (event: ReactPointerEvent<HTMLCanvasElement>): void => {
@@ -887,12 +865,13 @@ const App = (): JSX.Element => {
         const height = Math.abs(end.y - start.y);
         ctx.save();
         ctx.globalCompositeOperation = "source-over";
-        ctx.fillStyle = showMaskTint ? "rgba(255, 64, 64, 0.45)" : "rgba(255,255,255,0.49)";
+        ctx.fillStyle = showMaskTint ? "rgb(255, 64, 64)" : "rgb(255, 255, 255)";
         ctx.fillRect(x, y, width, height);
         ctx.restore();
-        updateMaskData();
       }
     }
+    // Encode once, when the stroke finishes.
+    updateMaskData();
     maskDrawingRef.current = false;
     maskLastPointRef.current = null;
     rectStartPointRef.current = null;
@@ -900,12 +879,15 @@ const App = (): JSX.Element => {
   };
 
   const onMaskPointerLeave = (): void => {
+    const wasDrawing = maskDrawingRef.current;
     if (maskTool === "rect") {
       const canvas = maskCanvasRef.current;
       const ctx = canvas?.getContext("2d");
       if (ctx && rectBaseImageRef.current) {
         ctx.putImageData(rectBaseImageRef.current, 0, 0);
       }
+    } else if (wasDrawing) {
+      updateMaskData();
     }
     maskDrawingRef.current = false;
     maskLastPointRef.current = null;

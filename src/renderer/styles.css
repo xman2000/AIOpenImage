@@ -1702,6 +1702,9 @@ textarea {
   display: block;
   touch-action: none;
   cursor: crosshair;
+  /* The mask is stored fully opaque so it exports as a clean stencil; the
+     see-through working view is presentation only. */
+  opacity: 0.45;
 }
 
 .edit-studio-controls {
