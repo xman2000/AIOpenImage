@@ -165,29 +165,10 @@ const modelNameFor = async (modelId: string, appPath: string): Promise<string> =
   }
 };
 
-const estimatedCost = (costEstimate: string): number | undefined => {
-  const cleaned = costEstimate.replaceAll("$", "").replaceAll("per image", "").trim();
-  if (!cleaned) {
-    return undefined;
-  }
-  if (cleaned.includes("-")) {
-    const [low, high] = cleaned.split("-").map((n) => Number.parseFloat(n.trim()));
-    if (Number.isFinite(low) && Number.isFinite(high)) {
-      return (low + high) / 2;
-    }
-  }
-  const single = Number.parseFloat(cleaned);
-  if (Number.isFinite(single)) {
-    return single;
-  }
-  return undefined;
-};
-
 const fetchCostEstimate = async (modelId: string, appPath: string): Promise<number | undefined> => {
   try {
     const models = await loadModels(appPath);
-    const model = models.find((m) => m.model_id === modelId);
-    return model ? estimatedCost(model.cost_estimate) : undefined;
+    return models.find((m) => m.model_id === modelId)?.estimatedImageCost;
   } catch {
     return undefined;
   }
@@ -208,7 +189,10 @@ export const generateImage = async (
   const requestBody: Record<string, unknown> = {
     model: options.model,
     messages: buildMessages(options),
-    modalities: ["image", "text"]
+    modalities: ["image", "text"],
+    // Ask OpenRouter to report what the request actually cost, so the gallery
+    // records the real charge instead of a per-image approximation.
+    usage: { include: true }
   };
 
   const imageConfig: Record<string, string> = {};
@@ -296,6 +280,12 @@ export const generateImage = async (
     dimensions = {};
   }
   const modelName = await modelNameFor(options.model, appPath);
+  // Prefer the cost OpenRouter reports for this request; fall back to the
+  // catalog estimate when the field is absent.
+  const reportedCost = typeof data.usage?.cost === "number" && Number.isFinite(data.usage.cost)
+    ? (data.usage.cost as number)
+    : undefined;
+  const resolvedCost = reportedCost ?? (await fetchCostEstimate(options.model, appPath));
   const timestamp = new Date().toISOString();
   const id = createHash("sha256").update(saved.id + timestamp).digest("hex").slice(0, 16);
 
@@ -308,7 +298,7 @@ export const generateImage = async (
     model: options.model,
     modelName,
     timestamp,
-    cost: await fetchCostEstimate(options.model, appPath),
+    cost: resolvedCost,
     aspectRatio: options.aspectRatio,
     imageSize: options.imageSize,
     seed: options.seed,

@@ -3,11 +3,30 @@ import path from "node:path";
 import yaml from "js-yaml";
 import type { ModelInfo } from "../../shared/types";
 
-const OPENROUTER_MODELS_URL = "https://openrouter.ai/api/frontend/models/find?fmt=cards&output_modalities=image";
+// The documented models endpoint. The previous source was an undocumented
+// frontend route that now returns a 404 HTML page, which fetchRemoteModels
+// silently swallowed -- leaving the catalog frozen on the bundled YAML.
+const OPENROUTER_MODELS_URL = "https://openrouter.ai/api/v1/models";
+
+// OpenRouter prices image output per output token, not per image. A generated
+// image is roughly 1.3k output tokens at 1-2K resolution, which is only ever an
+// approximation -- the figure recorded against a finished image comes from the
+// usage the API reports for that request.
+const NOMINAL_IMAGE_OUTPUT_TOKENS = 1290;
+
+const toPrice = (value: unknown): number | undefined => {
+  const parsed = typeof value === "string" ? Number.parseFloat(value) : typeof value === "number" ? value : Number.NaN;
+  return Number.isFinite(parsed) && parsed >= 0 ? parsed : undefined;
+};
+
+const formatImageCost = (cost: number | undefined): string =>
+  cost === undefined ? "See OpenRouter pricing" : `~$${cost.toFixed(cost < 0.01 ? 4 : 3)} per image`;
 
 const imageCollectionRank: string[] = [
   "google/gemini-2.5-flash-image",
+  "google/gemini-3.1-flash-image",
   "google/gemini-3.1-flash-image-preview",
+  "google/gemini-3-pro-image",
   "google/gemini-3-pro-image-preview",
   "openai/gpt-5-image-mini",
   "openai/gpt-5-image"
@@ -18,9 +37,28 @@ const modelRank = (modelId: string): number => {
   return index === -1 ? Number.MAX_SAFE_INTEGER : index;
 };
 
+// Bundled YAML records cost as prose ("$0.03 per image"); parse it once here so
+// nothing downstream has to parse English to do arithmetic.
+const costFromEstimateText = (costEstimate: string): number | undefined => {
+  const cleaned = costEstimate.replaceAll("$", "").replaceAll("~", "").replace("per image", "").trim();
+  if (!cleaned) {
+    return undefined;
+  }
+  if (cleaned.includes("-")) {
+    const [low, high] = cleaned.split("-").map((part) => Number.parseFloat(part.trim()));
+    if (Number.isFinite(low) && Number.isFinite(high)) {
+      return (low + high) / 2;
+    }
+  }
+  const single = Number.parseFloat(cleaned);
+  return Number.isFinite(single) ? single : undefined;
+};
+
 const normalizeModel = (raw: Record<string, unknown>): ModelInfo => {
   const inputModalities = Array.isArray(raw.input_modalities) ? raw.input_modalities.map(String) : ["text"];
+  const costEstimate = String(raw.cost_estimate ?? "unknown");
   return {
+    estimatedImageCost: costFromEstimateText(costEstimate),
     model_id: String(raw.model_id ?? ""),
     name: String(raw.name ?? raw.model_id ?? "Unknown"),
     description: String(raw.description ?? ""),
@@ -62,6 +100,11 @@ type OpenRouterArchitecture = {
   output_modalities?: unknown;
 };
 
+type OpenRouterPricing = {
+  image_output?: unknown;
+  prompt?: unknown;
+};
+
 type OpenRouterModel = {
   id?: unknown;
   slug?: unknown;
@@ -70,12 +113,11 @@ type OpenRouterModel = {
   input_modalities?: unknown;
   output_modalities?: unknown;
   architecture?: OpenRouterArchitecture | null;
+  pricing?: OpenRouterPricing | null;
 };
 
 type OpenRouterResponse = {
-  data?: {
-    models?: OpenRouterModel[];
-  };
+  data?: OpenRouterModel[];
 };
 
 const sortModels = (models: ModelInfo[]): ModelInfo[] => {
@@ -101,7 +143,7 @@ const fetchRemoteModels = async (): Promise<OpenRouterModel[]> => {
       return [];
     }
     const parsed = (await response.json()) as OpenRouterResponse;
-    return Array.isArray(parsed.data?.models) ? parsed.data.models : [];
+    return Array.isArray(parsed.data) ? parsed.data : [];
   } catch {
     return [];
   } finally {
@@ -126,8 +168,17 @@ const mergeRemoteModel = (remote: OpenRouterModel, local?: ModelInfo): ModelInfo
     return null;
   }
 
+  // Routing pseudo-models (openrouter/auto) advertise image output but price at
+  // -1 and cannot be generated against directly.
+  if (toPrice(remote.pricing?.prompt) === undefined) {
+    return null;
+  }
+
   const hasImageInput = inputModalities.includes("image");
   const fallbackName = modelId;
+  const perOutputToken = toPrice(remote.pricing?.image_output);
+  const estimatedImageCost =
+    perOutputToken === undefined ? undefined : perOutputToken * NOMINAL_IMAGE_OUTPUT_TOKENS;
 
   return {
     model_id: modelId,
@@ -137,7 +188,8 @@ const mergeRemoteModel = (remote: OpenRouterModel, local?: ModelInfo): ModelInfo
         ? remote.description
         : local?.description ?? "Image model from OpenRouter catalog.",
     best_for: local?.best_for ?? ["image generation"],
-    cost_estimate: local?.cost_estimate ?? "See OpenRouter pricing",
+    cost_estimate: estimatedImageCost === undefined ? local?.cost_estimate ?? "See OpenRouter pricing" : formatImageCost(estimatedImageCost),
+    estimatedImageCost,
     prompt_tips: local?.prompt_tips ?? ["Use explicit subject, style, and composition instructions."],
     input_modalities: inputModalities.length ? inputModalities : local?.input_modalities ?? ["text"],
     output_modalities: outputModalities.length ? outputModalities : local?.output_modalities ?? ["image", "text"],

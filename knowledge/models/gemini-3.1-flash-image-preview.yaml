@@ -5,7 +5,7 @@ best_for:
   - rapid high-quality generation
   - iterative image edits
   - controllable aspect-ratio outputs
-cost_estimate: $0.06 per image
+cost_estimate: ~$0.077 per image
 prompt_tips:
   - Use clear subject and style constraints for fast reliable results.
   - Set image_config.aspect_ratio to control framing.

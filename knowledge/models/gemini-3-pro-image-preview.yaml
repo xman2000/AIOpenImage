@@ -5,7 +5,7 @@ best_for:
   - detailed image transformations
   - complex multi-constraint prompts
   - premium quality outputs
-cost_estimate: $0.08 per image
+cost_estimate: ~$0.155 per image
 prompt_tips:
   - Use precise constraints for composition, style, and object placement.
   - Prefer this model for complex edit instructions across multiple regions.

@@ -4,7 +4,7 @@ description: GPT-5 image generation with strong instruction following and detail
 best_for:
   - poster and ad creative
   - text-heavy visual assets
-cost_estimate: $0.04 per image
+cost_estimate: ~$0.052 per image
 prompt_tips:
   - Include layout hierarchy and exact copy for text-heavy assets.
   - Break prompts into subject, style, and constraints.

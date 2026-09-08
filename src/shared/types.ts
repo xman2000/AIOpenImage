@@ -54,6 +54,8 @@ export type ModelInfo = {
   description: string;
   best_for: string[];
   cost_estimate: string;
+  /** USD per generated image, derived from live pricing. Authoritative for math; cost_estimate is display only. */
+  estimatedImageCost?: number;
   prompt_tips: string[];
   input_modalities: string[];
   output_modalities: string[];

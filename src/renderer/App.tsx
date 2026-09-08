@@ -121,18 +121,6 @@ const themeSelectColor = (preference: ThemePreference): string => {
   return selectedTextColors[preference] ?? selectedTextColors.system;
 };
 
-const parseAverageCost = (costEstimate: string): number => {
-  const cleaned = costEstimate.replaceAll("$", "").replace("per image", "").trim();
-  if (cleaned.includes("-")) {
-    const [low, high] = cleaned.split("-").map((part) => Number.parseFloat(part.trim()));
-    if (Number.isFinite(low) && Number.isFinite(high)) {
-      return (low + high) / 2;
-    }
-  }
-  const single = Number.parseFloat(cleaned);
-  return Number.isFinite(single) ? single : 0;
-};
-
 const createEditRunId = (): string => {
   const random = Math.random().toString(36).slice(2, 10);
   return `run_${Date.now().toString(36)}_${random}`;
@@ -295,14 +283,14 @@ const App = (): JSX.Element => {
   const canAttachMoreReferences = referenceImages.length < maxReferenceImages;
   const requestsPerModel = batchMode && !isEditMode ? Math.max(2, Math.min(10, batchCount)) : 1;
   const totalExpectedCost = useMemo(() => {
-    const perImageTotal = selectedModels.reduce((sum, model) => sum + parseAverageCost(model.cost_estimate), 0);
+    const perImageTotal = selectedModels.reduce((sum, model) => sum + (model.estimatedImageCost ?? 0), 0);
     return perImageTotal * requestsPerModel;
   }, [selectedModels, requestsPerModel]);
 
   const costBreakdown = useMemo(() => {
     const count = requestsPerModel;
     return selectedModels.map((model) => {
-      const unit = parseAverageCost(model.cost_estimate);
+      const unit = model.estimatedImageCost ?? 0;
       return {
         modelId: model.model_id,
         label: model.name,

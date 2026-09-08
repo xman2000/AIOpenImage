@@ -5,7 +5,7 @@ best_for:
   - image generation
   - image editing
   - multi-turn visual workflows
-cost_estimate: $0.03 per image
+cost_estimate: ~$0.039 per image
 prompt_tips:
   - Use image_config.aspect_ratio to control output framing.
   - Keep instructions explicit when editing existing images.

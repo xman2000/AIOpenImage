@@ -4,7 +4,7 @@ description: Efficient multimodal image generation model with lower latency and 
 best_for:
   - batch ideation
   - quick design alternatives
-cost_estimate: $0.008 per image
+cost_estimate: ~$0.010 per image
 prompt_tips:
   - Keep prompts concise and explicit for best throughput.
   - Use batches to explore multiple variations quickly.
