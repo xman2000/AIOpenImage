@@ -289,7 +289,7 @@ export const generateImage = async (
   }
 
   const saved = await saveImageBuffer(userDataPath, options.prompt, decoded.buffer, decoded.extension);
-  let dimensions: { width?: number; height?: number } = {};
+  let dimensions: { width?: number; height?: number };
   try {
     dimensions = imageSize(decoded.buffer);
   } catch {

@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from "react";
-import type { ChangeEvent, PointerEvent as ReactPointerEvent } from "react";
+import type { ChangeEvent, JSX, PointerEvent as ReactPointerEvent } from "react";
 import appLogo from "./assets/app-logo.png";
 import appIcon from "./assets/app-icon.png";
 import type {
@@ -305,7 +305,7 @@ const App = (): JSX.Element => {
   const rectBaseImageRef = useRef<ImageData | null>(null);
   const compareDraggingRef = useRef(false);
   const workspaceResizeRef = useRef<{ startX: number; startWidth: number } | null>(null);
-  const bootStartedAtRef = useRef<number>(Date.now());
+  const bootStartedAtRef = useRef<number>(0);
   const stopGenerationRequestedRef = useRef(false);
 
   const clampToolPanelWidth = (width: number): number => {
@@ -372,6 +372,8 @@ const App = (): JSX.Element => {
 
   useEffect(() => {
     const delay = (ms: number): Promise<void> => new Promise((resolve) => setTimeout(resolve, ms));
+
+    bootStartedAtRef.current = Date.now();
 
     const boot = async (): Promise<void> => {
       try {

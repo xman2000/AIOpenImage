@@ -417,7 +417,7 @@ app.on("browser-window-created", async () => {
 ipcMain.handle("app:loadData", async () => getAppData(app.getPath("userData")));
 ipcMain.handle("app:getInfo", async () => {
   const packagePath = path.join(app.getAppPath(), "package.json");
-  let releaseDate = "Local Build";
+  let releaseDate: string;
   try {
     const stat = await fs.stat(packagePath);
     releaseDate = stat.mtime.toISOString().slice(0, 10);

@@ -132,7 +132,7 @@ export const listOllamaModels = async (baseUrl: string): Promise<ModelInfo[]> =>
           }) satisfies ModelInfo
       );
   } catch (error) {
-    throw new Error(buildOllamaNetworkError(error));
+    throw new Error(buildOllamaNetworkError(error), { cause: error });
   }
 };
 
@@ -166,7 +166,7 @@ export const generateImageWithOllama = async (
     response_format: "b64_json"
   };
 
-  let data: Record<string, any> = {};
+  let data: Record<string, any>;
   try {
     const response = await fetch(`${baseUrl}/v1/images/generations`, {
       method: "POST",
@@ -199,7 +199,7 @@ export const generateImageWithOllama = async (
   const buffer = decodeB64(b64);
   const saved = await saveImageBuffer(userDataPath, options.prompt, buffer, "png");
 
-  let dimensions: { width?: number; height?: number } = {};
+  let dimensions: { width?: number; height?: number };
   try {
     dimensions = imageSize(buffer);
   } catch {
