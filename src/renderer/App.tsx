@@ -1512,7 +1512,7 @@ const App = (): JSX.Element => {
                 <option
                   key={model.model_id}
                   value={model.model_id}
-                  title={`${model.description}\nBest for: ${model.best_for.join(", ")}\nCost: ${model.cost_estimate}`}
+                  title={`${model.name}\n${model.model_id}\n\n${model.description}\nBest for: ${model.best_for.join(", ")}\nCost: ${model.cost_estimate}`}
                 >
                   {model.name} ({model.cost_estimate})
                 </option>
